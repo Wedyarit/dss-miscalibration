@@ -8,17 +8,17 @@ def expected_calibration_error(y_true: np.ndarray, y_prob: np.ndarray, n_bins: i
     bin_boundaries = np.linspace(0, 1, n_bins + 1)
     bin_lowers = bin_boundaries[:-1]
     bin_uppers = bin_boundaries[1:]
-    
+
     ece = 0
     for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
         in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
         prop_in_bin = in_bin.mean()
-        
+
         if prop_in_bin > 0:
             accuracy_in_bin = y_true[in_bin].mean()
             avg_confidence_in_bin = y_prob[in_bin].mean()
             ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
-    
+
     return ece
 
 def maximum_calibration_error(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
@@ -26,17 +26,17 @@ def maximum_calibration_error(y_true: np.ndarray, y_prob: np.ndarray, n_bins: in
     bin_boundaries = np.linspace(0, 1, n_bins + 1)
     bin_lowers = bin_boundaries[:-1]
     bin_uppers = bin_boundaries[1:]
-    
+
     mce = 0
     for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
         in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
         prop_in_bin = in_bin.mean()
-        
+
         if prop_in_bin > 0:
             accuracy_in_bin = y_true[in_bin].mean()
             avg_confidence_in_bin = y_prob[in_bin].mean()
             mce = max(mce, np.abs(avg_confidence_in_bin - accuracy_in_bin))
-    
+
     return mce
 
 def brier_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:
@@ -51,32 +51,30 @@ def roc_auc(y_true: np.ndarray, y_prob: np.ndarray) -> float:
         return 0.5  # Return neutral score if only one class present
 
 def reliability_diagram_data(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> List[Dict]:
-    """Generate data for reliability diagram"""
-    bin_boundaries = np.linspace(0, 1, n_bins + 1)
-    bin_lowers = bin_boundaries[:-1]
-    bin_uppers = bin_boundaries[1:]
-    
-    reliability_data = []
-    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
-        in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
-        count = in_bin.sum()
-        
-        if count > 0:
-            accuracy = y_true[in_bin].mean()
-            confidence = y_prob[in_bin].mean()
-        else:
-            accuracy = 0.0
-            confidence = (bin_lower + bin_upper) / 2
-        
-        reliability_data.append({
-            'bin_low': bin_lower,
-            'bin_high': bin_upper,
-            'conf_avg': confidence,
-            'acc_avg': accuracy,
-            'count': int(count)
+    y_true = y_true.astype(float)
+    y_prob = np.clip(y_prob, 0.0, 1.0)
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+
+    bins = []
+    alpha = 1.0; beta = 1.0  # Laplace smoothing
+    for i in range(len(edges) - 1):
+        lo, hi = edges[i], edges[i + 1]
+        in_bin = ((y_prob >= lo) & (y_prob <= hi)) if i == 0 else ((y_prob > lo) & (y_prob <= hi))
+        count = int(in_bin.sum())
+        if count == 0:
+            continue
+        conf_avg = float(y_prob[in_bin].mean())
+        k = float(y_true[in_bin].sum())                 # successes
+        acc_smooth = float((k + alpha) / (count + alpha + beta))
+        bins.append({
+            "bin_low": float(lo),
+            "bin_high": float(hi),
+            "conf_avg": conf_avg,
+            "acc_avg": acc_smooth,
+            "count": count
         })
-    
-    return reliability_data
+    return bins
+
 
 def calculate_all_metrics(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> Dict[str, float]:
     """Calculate all calibration metrics"""
@@ -92,8 +90,8 @@ def confident_error_rate(y_true: np.ndarray, y_prob: np.ndarray, confidence_thre
     confident_mask = y_prob >= confidence_threshold
     if confident_mask.sum() == 0:
         return 0.0
-    
+
     confident_errors = ((y_true == 0) & confident_mask).sum()
     confident_total = confident_mask.sum()
-    
+
     return confident_errors / confident_total if confident_total > 0 else 0.0

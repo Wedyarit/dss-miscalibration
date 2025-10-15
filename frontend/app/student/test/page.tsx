@@ -144,7 +144,7 @@ export default function StudentTestPage() {
 
     return (
         <div className="container mx-auto px-6 py-8">
-            <div className="max-w-4xl mx-auto space-y-6">
+            <div className="max-w-2xl mx-auto space-y-6">
                 <div className="text-center">
                     <h1 className="text-3xl font-bold">
                         {t("studentTest.title")}

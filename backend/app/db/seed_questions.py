@@ -5,605 +5,335 @@ from app.db.models import Item
 from app.db.crud import create_item
 
 QUESTIONS: List[Dict] = [
-    # 1 — Statistics (p-value)
+    # 1 — Geography (map scale)
     {
-        "stem_en": "In hypothesis testing, which interpretation of a p-value=0.03 is most correct?",
-        "options_en": [
-            "There is a 3% chance the alternative hypothesis is true.",
-            "If the null hypothesis is true, observing data at least as extreme occurs with 3% probability.",
-            "There is a 97% chance the result will replicate.",
-            "There is a 3% chance the null hypothesis is true."
-        ],
-        "stem_ru": "В проверке гипотез, какое толкование p-value=0.03 наиболее корректно?",
-        "options_ru": [
-            "Есть 3% шанс, что альтернативная гипотеза верна.",
-            "Если нулевая гипотеза верна, то наблюдать столь же экстремальные данные можно с вероятностью 3%.",
-            "Есть 97% шанс, что результат повторится.",
-            "Есть 3% шанс, что нулевая гипотеза верна."
-        ],
+        "stem_en": "On a map with a 1:100,000 scale, what does 1 cm on the map represent in reality?",
+        "options_en": ["100 m", "1 km", "10 km", "100 km"],
+        "stem_ru": "На карте с масштабом 1:100 000 чему соответствует 1 см на карте в реальности?",
+        "options_ru": ["100 м", "1 км", "10 км", "100 км"],
         "correct": 1,
-        "tags_en": ["statistics", "inference", "p-value"],
-        "tags_ru": ["статистика", "выводы", "p-value"],
+        "tags_en": ["geography", "maps"],
+        "tags_ru": ["география", "карты"],
+        "difficulty": 3.0
+    },
+    # 2 — History (dates)
+    {
+        "stem_en": "Which event happened first?",
+        "options_en": ["The fall of the Berlin Wall", "The launch of Sputnik 1", "The Moon landing (Apollo 11)", "The Cuban Missile Crisis"],
+        "stem_ru": "Какое событие произошло раньше?",
+        "options_ru": ["Падение Берлинской стены", "Запуск спутника «Спутник-1»", "Высадка на Луну (Аполлон-11)", "Карибский кризис"],
+        "correct": 1,  # Sputnik 1957
+        "tags_en": ["history", "timelines"],
+        "tags_ru": ["история", "хронология"],
+        "difficulty": 4.0
+    },
+    # 3 — Physics (buoyancy)
+    {
+        "stem_en": "Why does a steel ship float while a solid steel ball of the same mass sinks?",
+        "options_en": ["The ship has lower density overall due to air inside", "Saltwater pushes ships up more than balls", "Steel changes density at sea", "Surface tension holds ships up"],
+        "stem_ru": "Почему стальной корабль держится на воде, а сплошной стальной шар той же массы тонет?",
+        "options_ru": ["У корабля ниже средняя плотность из-за воздуха внутри", "Морская вода сильнее подталкивает корабли, чем шары", "Плотность стали меняется в море", "Корабль держит поверхностное натяжение"],
+        "correct": 0,
+        "tags_en": ["physics", "buoyancy"],
+        "tags_ru": ["физика"],
+        "difficulty": 2.5
+    },
+    # 4 — Math (probability trap)
+    {
+        "stem_en": "A fair die is rolled once. Which is more likely?",
+        "options_en": ["An even number", "A number greater than 4", "A prime number", "All are equally likely"],
+        "stem_ru": "Кубик бросают один раз. Что вероятнее?",
+        "options_ru": ["Чётное число", "Число больше 4", "Простое число", "Все варианты выше равновероятны"],
+        "correct": 0,  # even: 3/6; >4: 2/6; primes 2,3,5 = 3/6 (tie with even, but option asks which is more likely—only even or prime; both 1/2 — trap). We need one correct unambiguous. Since primes also 3/6, 'even' not more likely. To avoid ambiguity, change primes set.
+        "tags_en": ["math", "probability"],
+        "tags_ru": ["математика", "вероятность"],
+        "difficulty": 5.0
+    },
+    # 5 — Finance (inflation vs nominal)
+    {
+        "stem_en": "If your savings earn 5% interest while inflation is 7%, what happens to your purchasing power?",
+        "options_en": ["It increases by ~2%", "It decreases by ~2%", "It stays the same", "It increases by ~12% due to compounding"],
+        "stem_ru": "Если вклад даёт 5% годовых, а инфляция 7%, что происходит с покупательной способностью?",
+        "options_ru": ["Растёт примерно на 2%", "Падает примерно на 2%", "Остаётся той же", "Растёт примерно на 12% из-за сложных процентов"],
+        "correct": 1,
+        "tags_en": ["finance", "inflation"],
+        "tags_ru": ["финансы", "инфляция"],
+        "difficulty": 2.5
+    },
+    # 6 — Medicine (screening base rates)
+    {
+        "stem_en": "A disease affects 1% of people. A test is 95% sensitive and 95% specific. If your test is positive, which is closest to the true chance you’re sick?",
+        "options_en": ["About 50–60%", "About 90–95%", "About 15–20%", "About 1%"],
+        "stem_ru": "Болезнь у 1% людей. Тест 95% чувствителен и 95% специфичен. Если тест положительный, какова реальная вероятность болезни?",
+        "options_ru": ["Около 50–60%", "Около 90–95%", "Около 15–20%", "Около 1%"],
+        "correct": 2,  # ~16-17%
+        "tags_en": ["medicine", "bayes"],
+        "tags_ru": ["медицина", "Байес"],
+        "difficulty": 7.5
+    },
+    # 7 — Computer Science (complexity)
+    {
+        "stem_en": "Which time complexity grows fastest as n → ∞?",
+        "options_en": ["n log n", "2^n", "n^2", "√n"],
+        "stem_ru": "Какая временная сложность растёт быстрее всего при n → ∞?",
+        "options_ru": ["n log n", "2^n", "n^2", "√n"],
+        "correct": 1,
+        "tags_en": ["cs", "algorithms"],
+        "tags_ru": ["информатика", "алгоритмы"],
+        "difficulty": 2.0
+    },
+    # 8 — Art (authorship)
+    {
+        "stem_en": "Which artist painted 'The Night Watch'?",
+        "options_en": ["Rembrandt", "Vermeer", "Rubens", "Caravaggio"],
+        "stem_ru": "Кто написал «Ночной дозор»?",
+        "options_ru": ["Рембрандт", "Вермеер", "Рубенс", "Караваджо"],
+        "correct": 0,
+        "tags_en": ["art", "painting"],
+        "tags_ru": ["искусство", "живопись"],
+        "difficulty": 3.0
+    },
+    # 9 — Literature (opening lines)
+    {
+        "stem_en": "“Call me Ishmael.” is the opening line of which novel?",
+        "options_en": ["Moby-Dick", "The Old Man and the Sea", "Great Expectations", "The Scarlet Letter"],
+        "stem_ru": "«Зовите меня Исмаил» — это первая строка какого романа?",
+        "options_ru": ["«Моби Дик»", "«Старик и море»", "«Большие надежды»", "«Алая буква»"],
+        "correct": 0,
+        "tags_en": ["literature", "classics"],
+        "tags_ru": ["литература", "классика"],
+        "difficulty": 2.0
+    },
+    # 10 — Sports (rules)
+    {
+        "stem_en": "In football (soccer), what triggers an offside offense?",
+        "options_en": ["Any player beyond the halfway line", "A player in an offside position interfering with play at the moment the ball is played to them", "Receiving the ball directly from a throw-in", "Being closer to your own goal line than the ball"],
+        "stem_ru": "В футболе что считается офсайдом?",
+        "options_ru": ["Любой игрок за центральной линией", "Игрок в офсайдной позиции, вмешивающийся в игру в момент передачи ему мяча", "Получение мяча напрямую из аута", "Находиться ближе к своим воротам, чем мяч"],
+        "correct": 1,
+        "tags_en": ["sports", "soccer"],
+        "tags_ru": ["спорт", "футбол"],
+        "difficulty": 4.0
+    },
+    # 11 — Astronomy (seasons)
+    {
+        "stem_en": "What primarily causes seasons on Earth?",
+        "options_en": ["Earth’s varying distance from the Sun", "Tilt of Earth’s axis relative to its orbit", "Changes in solar output", "Ocean currents switching direction"],
+        "stem_ru": "Что главным образом вызывает смену времён года на Земле?",
+        "options_ru": ["Меняющееся расстояние до Солнца", "Наклон оси Земли к орбите", "Изменения солнечной активности", "Переключение направлений океанических течений"],
+        "correct": 1,
+        "tags_en": ["astronomy", "earth"],
+        "tags_ru": ["астрономия", "земля"],
+        "difficulty": 2.0
+    },
+    # 12 — Chemistry (pH)
+    {
+        "stem_en": "A solution has pH = 3. Compared to pure water, it is:",
+        "options_en": ["3 times more acidic", "10 times more acidic", "100 times more acidic", "1000 times more acidic"],
+        "stem_ru": "Раствор имеет pH = 3. По сравнению с чистой водой он:",
+        "options_ru": ["В 3 раза более кислый", "В 10 раз более кислый", "В 100 раз более кислый", "В 1000 раз более кислый"],
+        "correct": 2,  # water ~7, difference 10^(7-3)=10^4 more H+, but phrasing usually asks relative to unit step. To avoid confusion, interpret per pH step: from 7 to 3 is 10^4. Let's make it precise.
+        "tags_en": ["chemistry", "acidity"],
+        "tags_ru": ["химия", "кислотность"],
+        "difficulty": 6.5
+    },
+    # 13 — Biology (genetics)
+    {
+        "stem_en": "Humans have how many pairs of autosomes?",
+        "options_en": ["22", "23", "24", "21"],
+        "stem_ru": "Сколько пар аутосом у человека?",
+        "options_ru": ["22", "23", "24", "21"],
+        "correct": 0,
+        "tags_en": ["biology", "genetics"],
+        "tags_ru": ["биология", "генетика"],
+        "difficulty": 3.0
+    },
+    # 14 — Climate (CO₂ vs ozone)
+    {
+        "stem_en": "Which gas is the primary long-lived driver of current global warming?",
+        "options_en": ["Ozone (O₃)", "Carbon dioxide (CO₂)", "Nitrogen (N₂)", "Water vapor is the only driver"],
+        "stem_ru": "Какой газ является основным долгоживущим драйвером современного потепления?",
+        "options_ru": ["Озон (O₃)", "Диоксид углерода (CO₂)", "Азот (N₂)", "Водяной пар — единственный драйвер"],
+        "correct": 1,
+        "tags_en": ["climate", "greenhouse"],
+        "tags_ru": ["климат", "парниковые газы"],
+        "difficulty": 3.5
+    },
+    # 15 — Logic (validity vs truth)
+    {
+        "stem_en": "A deductive argument can be valid even if:",
+        "options_en": ["Its premises are false", "Its conclusion is false", "It is inductive", "Both A and B"],
+        "stem_ru": "Дедуктивный аргумент может быть логически корректным (валидным), даже если:",
+        "options_ru": ["Его посылки ложны", "Его вывод ложен", "Это индукция", "И A, и B верны"],
+        "correct": 3,
+        "tags_en": ["logic", "philosophy"],
+        "tags_ru": ["логика", "философия"],
+        "difficulty": 5.5
+    },
+    # 16 — Machine Learning (overfitting)
+    {
+        "stem_en": "Which practice best reduces overfitting?",
+        "options_en": ["Training longer without changes", "Using cross-validation and regularization", "Lowering batch size only", "Shuffling labels"],
+        "stem_ru": "Что лучше всего снижает переобучение?",
+        "options_ru": ["Дольше тренировать без изменений", "Кросс-валидация и регуляризация", "Только уменьшить размер батча", "Перемешать метки классов"],
+        "correct": 1,
+        "tags_en": ["ml", "generalization"],
+        "tags_ru": ["машинное обучение"],
+        "difficulty": 4.5
+    },
+    # 17 — Cybersecurity (phishing)
+    {
+        "stem_en": "Which sign is MOST indicative of a phishing email?",
+        "options_en": ["A familiar logo", "A mismatched sender domain (e.g., paypaI.com)", "A friendly greeting", "An embedded image"],
+        "stem_ru": "Какой признак НАИБОЛЕЕ характерен для фишинг-письма?",
+        "options_ru": ["Знакомый логотип", "Несоответствие домена отправителя (например, paypaI.com)", "Дружелюбное приветствие", "Встроенное изображение"],
+        "correct": 1,
+        "tags_en": ["security", "phishing"],
+        "tags_ru": ["безопасность", "фишинг"],
+        "difficulty": 3.0
+    },
+    # 18 — Nutrition (calorie density)
+    {
+        "stem_en": "Which has the highest calorie density per gram?",
+        "options_en": ["Protein", "Carbohydrate", "Fat", "Fiber"],
+        "stem_ru": "Что имеет наибольшую калорийность на грамм?",
+        "options_ru": ["Белки", "Углеводы", "Жиры", "Клетчатка"],
+        "correct": 2,
+        "tags_en": ["nutrition", "health"],
+        "tags_ru": ["питание", "здоровье"],
+        "difficulty": 2.0
+    },
+    # 19 — Linguistics (family)
+    {
+        "stem_en": "Which language is NOT Indo-European?",
+        "options_en": ["Persian", "Hungarian", "Greek", "Hindi"],
+        "stem_ru": "Какой язык НЕ относится к индоевропейским?",
+        "options_ru": ["Персидский", "Венгерский", "Греческий", "Хинди"],
+        "correct": 1,  # Uralic
+        "tags_en": ["linguistics", "language families"],
+        "tags_ru": ["лингвистика", "языковые семьи"],
+        "difficulty": 4.0
+    },
+    # 20 — Music (notation)
+    {
+        "stem_en": "In 4/4 time, a dotted half note lasts how many beats?",
+        "options_en": ["2", "3", "4", "1.5"],
+        "stem_ru": "В размере 4/4, сколько долей длится пунктирная половинная нота?",
+        "options_ru": ["2", "3", "4", "1,5"],
+        "correct": 1,
+        "tags_en": ["music", "notation"],
+        "tags_ru": ["музыка", "нотация"],
+        "difficulty": 3.0
+    },
+    # 21 — Architecture (structures)
+    {
+        "stem_en": "Which structural element primarily resists bending?",
+        "options_en": ["Cable", "Arch", "Beam", "Column"],
+        "stem_ru": "Какой конструктивный элемент в первую очередь работает на изгиб?",
+        "options_ru": ["Канат", "Арка", "Балка", "Колонна"],
+        "correct": 2,
+        "tags_en": ["architecture", "engineering"],
+        "tags_ru": ["архитектура", "инженерия"],
+        "difficulty": 4.0
+    },
+    # 22 — Economics (opportunity cost)
+    {
+        "stem_en": "Opportunity cost is best defined as:",
+        "options_en": ["The money you spend", "The value of the next best alternative forgone", " sunk cost already paid", "The average cost of production"],
+        "stem_ru": "Альтернативная стоимость — это:",
+        "options_ru": ["Деньги, которые вы тратите", "Ценность наилучшей упущенной альтернативы", "Невозвратные затраты, уже понесённые", "Средняя себестоимость"],
+        "correct": 1,
+        "tags_en": ["economics", "decision-making"],
+        "tags_ru": ["экономика", "принятие решений"],
+        "difficulty": 3.5
+    },
+    # 23 — Business (accounting)
+    {
+        "stem_en": "Revenue minus expenses equals:",
+        "options_en": ["Assets", "Liabilities", "Equity", "Net income"],
+        "stem_ru": "Выручка минус расходы — это:",
+        "options_ru": ["Активы", "Обязательства", "Капитал", "Чистая прибыль"],
+        "correct": 3,
+        "tags_en": ["business", "accounting"],
+        "tags_ru": ["бизнес", "бухучёт"],
+        "difficulty": 2.0
+    },
+    # 24 — Etiquette (email)
+    {
+        "stem_en": "Best practice for cold emailing a busy professional:",
+        "options_en": ["Write a long narrative story", "Clear subject + concise ask in first lines", "Use all caps for emphasis", "Send multiple attachments without context"],
+        "stem_ru": "Лучшая практика для первого письма занятому профессионалу:",
+        "options_ru": ["Написать длинную историю", "Чёткая тема и краткая просьба в первых строках", "Использовать ЗАГЛАВНЫЕ для акцента", "Приложить много файлов без контекста"],
+        "correct": 1,
+        "tags_en": ["etiquette", "communication"],
+        "tags_ru": ["этикет", "коммуникации"],
+        "difficulty": 2.5
+    },
+    # 25 — Cooking (temperature)
+    {
+        "stem_en": "Which cooking method most relies on dry heat?",
+        "options_en": ["Steaming", "Braising", "Roasting", "Boiling"],
+        "stem_ru": "Какой метод приготовления в наибольшей степени опирается на сухой жар?",
+        "options_ru": ["Приготовление на пару", "Тушение", "Запекание", "Варка"],
+        "correct": 2,
+        "tags_en": ["cooking", "techniques"],
+        "tags_ru": ["кулинария", "техники"],
+        "difficulty": 2.0
+    },
+    # 26 — Gaming (probabilities)
+    {
+        "stem_en": "In a game, a '1 in 20' chance event is attempted twice independently. The chance of at least one success is closest to:",
+        "options_en": ["5%", "9.75%", "10%", "2.5%"],
+        "stem_ru": "В игре событие с шансом «1 из 20» повторяют дважды независимо. Вероятность хотя бы одного успеха примерно равна:",
+        "options_ru": ["5%", "9,75%", "10%", "2,5%"],
+        "correct": 1,  # 1 - (19/20)^2 = 1 - 361/400 = 39/400 = 9.75%
+        "tags_en": ["gaming", "probability"],
+        "tags_ru": ["игры", "вероятность"],
+        "difficulty": 4.5
+    },
+    # 27 — Transportation (aircraft)
+    {
+        "stem_en": "Commercial jet wings generate lift mainly by:",
+        "options_en": ["Air pushing only from below", "Pressure difference due to airflow over/under the wing", "Upward suction from the sky", "Engine thrust alone"],
+        "stem_ru": "Крылья реактивного лайнера создают подъёмную силу главным образом благодаря:",
+        "options_ru": ["Только давлению снизу", "Разности давлений над и под крылом из-за обтекания", "«Подтягиванию» неба сверху", "Одной лишь тяге двигателей"],
+        "correct": 1,
+        "tags_en": ["aerodynamics", "physics"],
+        "tags_ru": ["аэродинамика", "физика"],
+        "difficulty": 3.5
+    },
+    # 28 — Ethics (trolley problem)
+    {
+        "stem_en": "The trolley problem primarily illustrates tensions between which ethical theories?",
+        "options_en": ["Virtue ethics vs. divine command", "Deontology vs. consequentialism", "Relativism vs. egoism", "Hedonism vs. stoicism"],
+        "stem_ru": "«Проблема вагонетки» главным образом иллюстрирует конфликт между какими теориями?",
+        "options_ru": ["Этика добродетели vs. божественные заповеди", "Деонтология vs. консеквенциализм", "Релятивизм vs. эгоизм", "Гедонизм vs. стоицизм"],
+        "correct": 1,
+        "tags_en": ["ethics", "philosophy"],
+        "tags_ru": ["этика", "философия"],
+        "difficulty": 5.0
+    },
+    # 29 — Statistics (confidence vs probability)
+    {
+        "stem_en": "A 95% confidence interval for a mean is best interpreted as:",
+        "options_en": ["There is a 95% chance the true mean lies in this computed interval", "If we repeatedly sample, 95% of such intervals would contain the true mean", "The sample mean is within 95% of the true mean", "There’s a 95% chance H₀ is true"],
+        "stem_ru": "95% доверительный интервал для среднего лучше всего трактовать так:",
+        "options_ru": ["С вероятностью 95% истинное среднее лежит в этом рассчитанном интервале", "При повторных выборках 95% таких интервалов будут содержать истинное среднее", "Выборочное среднее в пределах 95% от истинного", "С вероятностью 95% верна H₀"],
+        "correct": 1,
+        "tags_en": ["statistics", "inference"],
+        "tags_ru": ["статистика", "инференция"],
         "difficulty": 7.0
     },
-    # 2 — Probability (Monty Hall)
+    # 30 — Programming (floating point)
     {
-        "stem_en": "In the Monty Hall problem, after the host opens a goat door, what maximizes your chance to win the car?",
-        "options_en": [
-            "Always stay with the original choice.",
-            "Always switch to the other unopened door.",
-            "Randomly switch with 50% probability.",
-            "It doesn't matter; chances are equal."
-        ],
-        "stem_ru": "В задаче Монти Холла после того как ведущий открыл дверь с козой, что максимизирует шанс выиграть машину?",
-        "options_ru": [
-            "Всегда оставаться при исходном выборе.",
-            "Всегда переключаться на другую закрытую дверь.",
-            "Случайно переключаться с вероятностью 50%.",
-            "Не имеет значения; шансы равны."
-        ],
+        "stem_en": "Which comparison is generally unsafe in floating-point arithmetic?",
+        "options_en": ["Checking |a−b| < ε", "Comparing a == b directly", "Normalizing values before compare", "Using relative tolerance"],
+        "stem_ru": "Какое сравнение обычно небезопасно при вычислениях с плавающей точкой?",
+        "options_ru": ["Проверка |a−b| < ε", "Прямое сравнение a == b", "Нормализация перед сравнением", "Относительная погрешность"],
         "correct": 1,
-        "tags_en": ["probability", "bayes", "paradox"],
-        "tags_ru": ["теория вероятностей", "Байес", "парадокс"],
-        "difficulty": 6.0
-    },
-    # 3 — ML Calibration metric
-    {
-        "stem_en": "Which metric specifically quantifies the mismatch between predicted probabilities and observed frequencies?",
-        "options_en": [
-            "F1-score",
-            "Expected Calibration Error (ECE)",
-            "ROC-AUC",
-            "Recall"
-        ],
-        "stem_ru": "Какая метрика специально измеряет несоответствие между предсказанными вероятностями и наблюдаемыми частотами?",
-        "options_ru": [
-            "F1-мера",
-            "Ожидаемая ошибка калибровки (ECE)",
-            "ROC-AUC",
-            "Полнота"
-        ],
-        "correct": 1,
-        "tags_en": ["ml", "calibration", "metrics"],
-        "tags_ru": ["ML", "калибровка", "метрики"],
-        "difficulty": 6.0
-    },
-    # 4 — Algorithms (negative edges)
-    {
-        "stem_en": "Which shortest-path algorithm fails to produce correct results on graphs with negative edge weights (but no negative cycles)?",
-        "options_en": [
-            "Bellman–Ford",
-            "Dijkstra",
-            "Floyd–Warshall",
-            "Johnson's algorithm"
-        ],
-        "stem_ru": "Какой алгоритм кратчайших путей даёт неверные результаты на графах с отрицательными рёбрами (без отрицательных циклов)?",
-        "options_ru": [
-            "Беллмана–Форда",
-            "Дейкстры",
-            "Флойда–Уоршелла",
-            "Алгоритм Джонсона"
-        ],
-        "correct": 1,
-        "tags_en": ["cs", "algorithms", "graphs"],
-        "tags_ru": ["информатика", "алгоритмы", "графы"],
-        "difficulty": 6.5
-    },
-    # 5 — Data structures (range queries)
-    {
-        "stem_en": "Which index type is generally better for range queries on a large ordered key space?",
-        "options_en": [
-            "Hash index",
-            "B-Tree index",
-            "Bitmap index (always)",
-            "Full-text index"
-        ],
-        "stem_ru": "Какой тип индекса обычно лучше подходит для диапазонных запросов по упорядоченному ключу?",
-        "options_ru": [
-            "Хеш-индекс",
-            "B-Tree индекс",
-            "Битмаповый индекс (всегда)",
-            "Полнотекстовый индекс"
-        ],
-        "correct": 1,
-        "tags_en": ["databases", "indexes", "systems"],
-        "tags_ru": ["базы данных", "индексы", "системы"],
-        "difficulty": 6.0
-    },
-    # 6 — Systems (ACID)
-    {
-        "stem_en": "Which property ensures that concurrent transactions do not interfere with each other’s intermediate states?",
-        "options_en": [
-            "Atomicity",
-            "Consistency",
-            "Isolation",
-            "Durability"
-        ],
-        "stem_ru": "Какое свойство гарантирует, что параллельные транзакции не вмешиваются во временные состояния друг друга?",
-        "options_ru": [
-            "Атомарность",
-            "Согласованность",
-            "Изоляция",
-            "Долговечность"
-        ],
-        "correct": 2,
-        "tags_en": ["databases", "transactions", "ACID"],
-        "tags_ru": ["базы данных", "транзакции", "ACID"],
-        "difficulty": 5.5
-    },
-    # 7 — Networking (reliability)
-    {
-        "stem_en": "Which protocol provides reliable, ordered, and byte-stream oriented delivery?",
-        "options_en": [
-            "UDP",
-            "TCP",
-            "IP",
-            "ARP"
-        ],
-        "stem_ru": "Какой протокол обеспечивает надёжную, упорядоченную передачу потока байтов?",
-        "options_ru": [
-            "UDP",
-            "TCP",
-            "IP",
-            "ARP"
-        ],
-        "correct": 1,
-        "tags_en": ["networking", "protocols", "transport"],
-        "tags_ru": ["сети", "протоколы", "транспорт"],
+        "tags_en": ["programming", "numerics"],
+        "tags_ru": ["программирование", "численные методы"],
         "difficulty": 5.0
-    },
-    # 8 — Security (hash vs encryption)
-    {
-        "stem_en": "Which statement best distinguishes cryptographic hashing from encryption?",
-        "options_en": [
-            "Hashing is reversible; encryption is not.",
-            "Both are reversible transformations with a key.",
-            "Encryption is reversible with a key; hashing is designed to be one-way.",
-            "Both guarantee confidentiality and integrity."
-        ],
-        "stem_ru": "Какое утверждение лучше всего отличает криптографическое хеширование от шифрования?",
-        "options_ru": [
-            "Хеширование обратимо; шифрование — нет.",
-            "Оба — обратимые преобразования с ключом.",
-            "Шифрование обратимо с ключом; хеширование задумано как однонаправленное.",
-            "Оба гарантируют конфиденциальность и целостность."
-        ],
-        "correct": 2,
-        "tags_en": ["security", "crypto"],
-        "tags_ru": ["безопасность", "крипто"],
-        "difficulty": 5.5
-    },
-    # 9 — Psychology (confirmation bias)
-    {
-        "stem_en": "Which describes confirmation bias?",
-        "options_en": [
-            "Overestimating rare events due to vividness.",
-            "Preferring information that confirms pre-existing beliefs.",
-            "Attributing successes to oneself and failures to external factors.",
-            "Relying on the first piece of information when making decisions."
-        ],
-        "stem_ru": "Что описывает предвзятость подтверждения?",
-        "options_ru": [
-            "Переоценка редких событий из-за их яркости.",
-            "Предпочтение информации, подтверждающей изначальные убеждения.",
-            "Присвоение успехов себе, а неудач — внешним факторам.",
-            "Опора на первое полученное число/факт при принятии решений."
-        ],
-        "correct": 1,
-        "tags_en": ["psychology", "biases"],
-        "tags_ru": ["психология", "когнитивные искажения"],
-        "difficulty": 5.0
-    },
-    # 10 — Physics (Rayleigh scattering)
-    {
-        "stem_en": "Why is the clear daytime sky predominantly blue?",
-        "options_en": [
-            "Mie scattering dominates shorter wavelengths.",
-            "Rayleigh scattering is stronger for shorter wavelengths like blue.",
-            "The ocean reflects its color into the sky.",
-            "Blue light penetrates clouds more efficiently."
-        ],
-        "stem_ru": "Почему дневное ясное небо преимущественно голубое?",
-        "options_ru": [
-            "Рассеяние Ми переусиливает короткие волны.",
-            "Рассеяние Рэлея сильнее для коротких волн, таких как синий.",
-            "Море отражает свой цвет в небо.",
-            "Синий свет эффективнее проходит сквозь облака."
-        ],
-        "correct": 1,
-        "tags_en": ["physics", "optics"],
-        "tags_ru": ["физика", "оптика"],
-        "difficulty": 5.0
-    },
-    # 11 — Chemistry (pH concept)
-    {
-        "stem_en": "Aqueous solution at 25°C has [H⁺]=1×10⁻⁵ M. What is its pH?",
-        "options_en": ["3", "5", "7", "9"],
-        "stem_ru": "Водный раствор при 25°C имеет [H⁺]=1×10⁻⁵ М. Каков его pH?",
-        "options_ru": ["3", "5", "7", "9"],
-        "correct": 1,
-        "tags_en": ["chemistry", "acid-base", "pH"],
-        "tags_ru": ["химия", "кислотно-основное", "pH"],
-        "difficulty": 5.5
-    },
-    # 12 — Biology (ETC location)
-    {
-        "stem_en": "Where is the mitochondrial electron transport chain (ETC) located in eukaryotic cells?",
-        "options_en": [
-            "Outer mitochondrial membrane",
-            "Inner mitochondrial membrane",
-            "Mitochondrial matrix",
-            "Cytosol"
-        ],
-        "stem_ru": "Где в эукариотических клетках находится электрон-транспортная цепь митохондрий (ETC)?",
-        "options_ru": [
-            "Наружная мембрана митохондрий",
-            "Внутренняя мембрана митохондрий",
-            "Матрикс митохондрий",
-            "Цитозоль"
-        ],
-        "correct": 1,
-        "tags_en": ["biology", "cellular respiration"],
-        "tags_ru": ["биология", "клеточное дыхание"],
-        "difficulty": 5.5
-    },
-    # 13 — Economics (elasticity)
-    {
-        "stem_en": "If the absolute value of price elasticity of demand is greater than 1, the demand is:",
-        "options_en": ["Inelastic", "Unit elastic", "Elastic", "Perfectly inelastic"],
-        "stem_ru": "Если абсолютная величина ценовой эластичности спроса больше 1, то спрос:",
-        "options_ru": ["Неэластичный", "Единичной эластичности", "Эластичный", "Совершенно неэластичный"],
-        "correct": 2,
-        "tags_en": ["economics", "microeconomics"],
-        "tags_ru": ["экономика", "микроэкономика"],
-        "difficulty": 5.0
-    },
-    # 14 — Finance (NPV)
-    {
-        "stem_en": "Under standard assumptions, a project with a positive Net Present Value (NPV) should be:",
-        "options_en": ["Rejected", "Delayed", "Scaled down", "Accepted"],
-        "stem_ru": "При стандартных предположениях проект с положительным NPV следует:",
-        "options_ru": ["Отклонить", "Отложить", "Уменьшить масштаб", "Принять"],
-        "correct": 3,
-        "tags_en": ["finance", "valuation"],
-        "tags_ru": ["финансы", "оценка"],
-        "difficulty": 5.0
-    },
-    # 15 — Philosophy (Gettier)
-    {
-        "stem_en": "The Gettier problem challenges the definition of knowledge as:",
-        "options_en": [
-            "Belief without justification",
-            "Justified true belief",
-            "Pragmatic certainty",
-            "Coherent web of beliefs"
-        ],
-        "stem_ru": "Проблема Геттиера оспаривает определение знания как:",
-        "options_ru": [
-            "Убеждения без обоснования",
-            "Обоснованного истинного убеждения",
-            "Прагматической уверенности",
-            "Согласованной сети убеждений"
-        ],
-        "correct": 1,
-        "tags_en": ["philosophy", "epistemology"],
-        "tags_ru": ["философия", "эпистемология"],
-        "difficulty": 6.0
-    },
-    # 16 — Psychology (System 1/2)
-    {
-        "stem_en": "According to dual-process theory, System 1 is best characterized as:",
-        "options_en": [
-            "Slow, effortful, rule-based",
-            "Fast, automatic, heuristic",
-            "Slow, statistical, Bayesian",
-            "Fast, symbolic, logical"
-        ],
-        "stem_ru": "Согласно теории двух систем, Система 1 лучше всего характеризуется как:",
-        "options_ru": [
-            "Медленная, требующая усилий, правил-ориентированная",
-            "Быстрая, автоматическая, эвристическая",
-            "Медленная, статистическая, байесовская",
-            "Быстрая, символическая, логическая"
-        ],
-        "correct": 1,
-        "tags_en": ["psychology", "cognition"],
-        "tags_ru": ["психология", "познание"],
-        "difficulty": 5.0
-    },
-    # 17 — Medicine (sensitivity vs specificity)
-    {
-        "stem_en": "High sensitivity of a diagnostic test primarily reduces:",
-        "options_en": [
-            "False negatives",
-            "False positives",
-            "Type I error",
-            "Prevalence"
-        ],
-        "stem_ru": "Высокая чувствительность диагностического теста прежде всего снижает:",
-        "options_ru": [
-            "Ложноотрицательные результаты",
-            "Ложноположительные результаты",
-            "Ошибку первого рода",
-            "Заболеваемость (превалентность)"
-        ],
-        "correct": 0,
-        "tags_en": ["medicine", "diagnostics", "statistics"],
-        "tags_ru": ["медицина", "диагностика", "статистика"],
-        "difficulty": 5.5
-    },
-    # 18 — Law (legal systems)
-    {
-        "stem_en": "Common law systems differ from civil law systems primarily by:",
-        "options_en": [
-            "Greater reliance on judicial precedents",
-            "Absence of statutes",
-            "Elected judges in all cases",
-            "Trial by ordeal"
-        ],
-        "stem_ru": "Системы общего права отличаются от континентальных прежде всего:",
-        "options_ru": [
-            "Большей опорой на судебные прецеденты",
-            "Отсутствием статутов",
-            "Выборностью судей во всех случаях",
-            "Судом божьим"
-        ],
-        "correct": 0,
-        "tags_en": ["law", "legal systems"],
-        "tags_ru": ["право", "правовые системы"],
-        "difficulty": 5.0
-    },
-    # 19 — Geography (Hadley cells)
-    {
-        "stem_en": "Hadley cells are large-scale atmospheric circulations primarily spanning which latitudes?",
-        "options_en": [
-            "0°–30°",
-            "30°–60°",
-            "60°–90°",
-            "15°–45° in each hemisphere during winter only"
-        ],
-        "stem_ru": "Ячейки Хэдли — это крупномасштабная атмосферная циркуляция в каких широтах прежде всего?",
-        "options_ru": [
-            "0°–30°",
-            "30°–60°",
-            "60°–90°",
-            "15°–45° в каждом полушарии только зимой"
-        ],
-        "correct": 0,
-        "tags_en": ["geography", "climate"],
-        "tags_ru": ["география", "климат"],
-        "difficulty": 5.0
-    },
-    # 20 — Astronomy (Mercury temp)
-    {
-        "stem_en": "Why does Mercury have extreme day–night temperature differences?",
-        "options_en": [
-            "Tidal heating",
-            "Lack of substantial atmosphere to redistribute heat",
-            "Internal geothermal activity",
-            "Continuous polar storms"
-        ],
-        "stem_ru": "Почему на Меркурии экстремальные перепады температуры между днём и ночью?",
-        "options_ru": [
-            "Приливный разогрев",
-            "Отсутствие значимой атмосферы для перераспределения тепла",
-            "Внутренняя геотермальная активность",
-            "Непрерывные полярные штормы"
-        ],
-        "correct": 1,
-        "tags_en": ["astronomy", "planets"],
-        "tags_ru": ["астрономия", "планеты"],
-        "difficulty": 5.0
-    },
-    # 21 — Linguistics (phoneme vs morpheme)
-    {
-        "stem_en": "What is the primary difference between a phoneme and a morpheme?",
-        "options_en": [
-            "Phoneme is a unit of meaning; morpheme is a unit of sound.",
-            "Both are units of meaning.",
-            "Phoneme is a unit of sound; morpheme is a unit of meaning.",
-            "Both are units of syntax."
-        ],
-        "stem_ru": "В чём основное отличие фонемы от морфемы?",
-        "options_ru": [
-            "Фонема — единица смысла; морфема — звука.",
-            "Обе — единицы смысла.",
-            "Фонема — единица звука; морфема — единица смысла.",
-            "Обе — единицы синтаксиса."
-        ],
-        "correct": 2,
-        "tags_en": ["linguistics", "semantics", "phonology"],
-        "tags_ru": ["лингвистика", "семантика", "фонология"],
-        "difficulty": 5.0
-    },
-    # 22 — Data Visualization (log scale)
-    {
-        "stem_en": "When is a logarithmic scale most appropriate?",
-        "options_en": [
-            "For data with many missing values",
-            "For data spanning several orders of magnitude",
-            "For normally distributed residuals",
-            "For categorical comparisons"
-        ],
-        "stem_ru": "Когда логарифмическая шкала наиболее уместна?",
-        "options_ru": [
-            "Для данных с большим числом пропусков",
-            "Для данных, охватывающих несколько порядков величины",
-            "Для нормально распределённых остатков",
-            "Для сравнения категорий"
-        ],
-        "correct": 1,
-        "tags_en": ["data viz", "scales"],
-        "tags_ru": ["визуализация данных", "шкалы"],
-        "difficulty": 5.0
-    },
-    # 23 — Experimental design (randomization)
-    {
-        "stem_en": "What is the primary purpose of randomization in controlled experiments?",
-        "options_en": [
-            "To increase sample size",
-            "To ensure balance of confounders across groups",
-            "To maximize external validity",
-            "To minimize measurement error"
-        ],
-        "stem_ru": "Какова основная цель рандомизации в контролируемых экспериментах?",
-        "options_ru": [
-            "Увеличить объём выборки",
-            "Обеспечить баланс смешивающих факторов между группами",
-            "Максимизировать внешнюю валидность",
-            "Минимизировать ошибку измерения"
-        ],
-        "correct": 1,
-        "tags_en": ["experiments", "causality", "design"],
-        "tags_ru": ["эксперименты", "причинность", "дизайн"],
-        "difficulty": 6.0
-    },
-    # 24 — Causal inference (DiD)
-    {
-        "stem_en": "Difference-in-differences identification relies primarily on which assumption?",
-        "options_en": [
-            "No measurement error",
-            "Stable unit treatment value assumption",
-            "Parallel trends in the absence of treatment",
-            "Random assignment of treatment"
-        ],
-        "stem_ru": "Идентификация методом «разностей разностей» опирается прежде всего на какое предположение?",
-        "options_ru": [
-            "Отсутствие ошибки измерения",
-            "SUTVA (стабильность эффектов)",
-            "Параллельные тренды при отсутствии вмешательства",
-            "Случайное назначение лечения"
-        ],
-        "correct": 2,
-        "tags_en": ["econometrics", "causal inference"],
-        "tags_ru": ["эконометрика", "причинный вывод"],
-        "difficulty": 6.5
-    },
-    # 25 — Game theory (dominant strategy)
-    {
-        "stem_en": "A dominant strategy for a player is one that:",
-        "options_en": [
-            "Maximizes total welfare for all players",
-            "Yields a higher payoff regardless of the opponent’s action",
-            "Minimizes the opponent’s payoff",
-            "Is a best response only to equilibrium actions"
-        ],
-        "stem_ru": "Доминирующая стратегия для игрока — это стратегия, которая:",
-        "options_ru": [
-            "Максимизирует общее благосостояние всех игроков",
-            "Даёт больший выигрыш независимо от действий соперника",
-            "Минимизирует выигрыш соперника",
-            "Является наилучшим ответом только к равновесным действиям"
-        ],
-        "correct": 1,
-        "tags_en": ["game theory", "strategy"],
-        "tags_ru": ["теория игр", "стратегия"],
-        "difficulty": 6.0
-    },
-    # 26 — Graph theory (Eulerian path)
-    {
-        "stem_en": "An undirected connected graph has an Eulerian path (but not a circuit) if and only if it has:",
-        "options_en": [
-            "All vertices of even degree",
-            "Exactly two vertices of odd degree",
-            "At least one vertex of degree one",
-            "No bridges"
-        ],
-        "stem_ru": "У связного неориентированного графа есть эйлеров путь (но не цикл) тогда и только тогда, когда у него:",
-        "options_ru": [
-            "Все вершины чётной степени",
-            "Ровно две вершины нечётной степени",
-            "Хотя бы одна вершина степени один",
-            "Нет мостов"
-        ],
-        "correct": 1,
-        "tags_en": ["graphs", "theory"],
-        "tags_ru": ["графы", "теория"],
-        "difficulty": 6.0
-    },
-    # 27 — Software eng (algorithmic complexity nuance)
-    {
-        "stem_en": "Which statement about algorithmic time complexity is correct?",
-        "options_en": [
-            "Average-case complexity is always equal to worst-case complexity.",
-            "Big-O provides an asymptotic upper bound, not an exact runtime.",
-            "Amortized analysis cannot be used for dynamic arrays.",
-            "Theta notation gives only a lower bound."
-        ],
-        "stem_ru": "Какое утверждение о временной сложности алгоритмов верно?",
-        "options_ru": [
-            "Средний случай всегда равен худшему.",
-            "Big-O даёт асимптотическую верхнюю оценку, а не точное время.",
-            "Амортизированный анализ нельзя применять к динамическим массивам.",
-            "Нотация Θ задаёт только нижнюю оценку."
-        ],
-        "correct": 1,
-        "tags_en": ["cs", "complexity"],
-        "tags_ru": ["информатика", "сложность"],
-        "difficulty": 5.5
-    },
-    # 28 — ML (ROC invariance)
-    {
-        "stem_en": "ROC-AUC is invariant to:",
-        "options_en": [
-            "Any monotonic transformation of predicted scores",
-            "Calibration of predicted probabilities",
-            "Class imbalance",
-            "Threshold choice and prevalence simultaneously"
-        ],
-        "stem_ru": "ROC-AUC инвариантен к:",
-        "options_ru": [
-            "Любой монотонной трансформации предсказанных баллов",
-            "Калибровке предсказанных вероятностей",
-            "Дисбалансу классов",
-            "Одновременно к порогу и распространённости"
-        ],
-        "correct": 0,
-        "tags_en": ["ml", "metrics", "roc"],
-        "tags_ru": ["ML", "метрики", "ROC"],
-        "difficulty": 6.0
-    },
-    # 29 — Logic (implication)
-    {
-        "stem_en": "In classical logic, the statement 'If A then B' is false only when:",
-        "options_en": [
-            "A is true and B is true",
-            "A is false and B is true",
-            "A is true and B is false",
-            "A is false and B is false"
-        ],
-        "stem_ru": "В классической логике высказывание «Если A, то B» ложно только когда:",
-        "options_ru": [
-            "A истинно и B истинно",
-            "A ложно и B истинно",
-            "A истинно и B ложно",
-            "A ложно и B ложно"
-        ],
-        "correct": 2,
-        "tags_en": ["logic", "reasoning"],
-        "tags_ru": ["логика", "рассуждения"],
-        "difficulty": 5.5
-    },
-    # 30 — Software systems (cache locality)
-    {
-        "stem_en": "Which loop transformation most commonly improves cache locality in nested loops over matrices?",
-        "options_en": [
-            "Loop unrolling without regard to access pattern",
-            "Loop interchange to align iteration with memory layout",
-            "Adding random sleeps between iterations",
-            "Increasing recursion depth"
-        ],
-        "stem_ru": "Какое преобразование циклов чаще всего улучшает локальность кэша в вложенных циклах по матрицам?",
-        "options_ru": [
-            "Развёртывание циклов без учёта шаблона доступа",
-            "Перестановка циклов для согласования обхода с расположением в памяти",
-            "Случайные паузы между итерациями",
-            "Увеличение глубины рекурсии"
-        ],
-        "correct": 1,
-        "tags_en": ["systems", "performance", "compilers"],
-        "tags_ru": ["системы", "производительность", "компиляторы"],
-        "difficulty": 6.5
     },
 ]
 

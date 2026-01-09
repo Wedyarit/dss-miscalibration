@@ -81,8 +81,14 @@ def predict_confident_error(user_id: int, item_id: int, interaction_data: Dict,
             'avg_time_ms': user_aggregate.avg_time_ms
         }
 
+        # Get Beta-Binomial parameters
+        bb_alpha = getattr(item_aggregate, 'bb_alpha', 1.0) if hasattr(item_aggregate, 'bb_alpha') else 1.0
+        bb_beta = getattr(item_aggregate, 'bb_beta', 1.0) if hasattr(item_aggregate, 'bb_beta') else 1.0
+        
         item_agg_dict = {
-            'elo_difficulty': item_aggregate.elo_difficulty,
+            'bb_alpha': bb_alpha,
+            'bb_beta': bb_beta,
+            'elo_difficulty': item_aggregate.elo_difficulty,  # Legacy
             'avg_accuracy': item_aggregate.avg_accuracy,
             'avg_time_ms': item_aggregate.avg_time_ms
         }
@@ -93,8 +99,10 @@ def predict_confident_error(user_id: int, item_id: int, interaction_data: Dict,
         }
 
         # Extract features
+        # Note: interaction_data may not have confidence (for real tests)
         user_features = extract_user_features(user_id, user_agg_dict, [])
         item_features = extract_item_features(item_id, item_agg_dict, item_data)
+        # Don't require confidence in interaction_data - model works without it
         interaction_features = extract_interaction_features(interaction_data)
         temporal_features = extract_temporal_features(interaction_data.get('timestamp', datetime.utcnow()))
 

@@ -59,7 +59,7 @@ And more...
                            ▼
                    ┌─────────────┐
                    │ ML Pipeline │
-                   │ (scikit-learn)│
+                   │  (sk-learn) │
                    └─────────────┘
 ```
 

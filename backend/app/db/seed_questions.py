@@ -338,7 +338,7 @@ QUESTIONS: List[Dict] = [
 ]
 
 def seed_questions() -> Dict[str, int]:
-    create_tables()  # safe to call; creates tables if missing
+    create_tables()
     db = SessionLocal()
     created = 0
     skipped = 0
@@ -365,10 +365,3 @@ def seed_questions() -> Dict[str, int]:
         return {"created": created, "skipped": skipped, "total": len(QUESTIONS)}
     finally:
         db.close()
-
-if __name__ == "__main__":
-    result = seed_questions()
-    print(
-        f"Seed bilingual questions done. "
-        f"Created: {result['created']}, Skipped (duplicates): {result['skipped']}, Total in script: {result['total']}"
-    )

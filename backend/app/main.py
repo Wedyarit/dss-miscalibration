@@ -1,13 +1,12 @@
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1.router import api_router
 from app.db.base import create_tables
-from app.db.seed import init_database
 
 # Initialize database
 create_tables()
-init_database()
 
 app = FastAPI(
     title="DSS Miscalibration Prediction System",
@@ -34,3 +33,6 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

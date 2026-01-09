@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.db.crud import create_session, get_session, finish_session, create_interaction, get_interactions_by_session, get_item, get_user
-from app.schemas.sessions import SessionCreate, SessionResponse, AnswerSubmit, AnswerResponse
-from app.ml.irt_elo import update_elo_ratings, update_user_aggregates, update_item_aggregates
+from app.db.crud import create_session, get_session, finish_session, create_interaction, get_item, get_user
+from app.schemas.sessions import SessionCreate, SessionResponse, AnswerSubmit, AnswerResponse, SessionPurpose
+from app.ml.irt_elo import update_elo_ratings, update_user_aggregates, update_item_aggregates, update_beta_binomial_difficulty
 from app.db.crud import get_or_create_user_aggregate, get_or_create_item_aggregate, update_user_aggregate, update_item_aggregate
-from typing import Optional
+from datetime import datetime
 
 router = APIRouter()
 
@@ -19,13 +19,23 @@ async def create_session_endpoint(
     user = get_user(db, session.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    db_session = create_session(db, session.user_id, session.mode.value)
-    
+
+    purpose_value = session.purpose.value if session.purpose else "real"
+    db_session = create_session(db, session.user_id, session.mode.value, purpose_value)
+
+    # Convert purpose string to enum if needed
+    purpose_enum = None
+    if db_session.purpose:
+        try:
+            purpose_enum = SessionPurpose(db_session.purpose)
+        except ValueError:
+            purpose_enum = SessionPurpose.REAL  # Default fallback
+
     return SessionResponse(
         id=db_session.id,
         user_id=db_session.user_id,
         mode=session.mode,
+        purpose=purpose_enum,
         created_at=db_session.created_at,
         finished_at=db_session.finished_at
     )
@@ -39,11 +49,20 @@ async def get_session_endpoint(
     db_session = get_session(db, session_id)
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
+    # Convert purpose string to enum if needed
+    purpose_enum = None
+    if db_session.purpose:
+        try:
+            purpose_enum = SessionPurpose(db_session.purpose)
+        except ValueError:
+            purpose_enum = SessionPurpose.REAL  # Default fallback
+
     return SessionResponse(
         id=db_session.id,
         user_id=db_session.user_id,
         mode=db_session.mode,
+        purpose=purpose_enum,
         created_at=db_session.created_at,
         finished_at=db_session.finished_at
     )
@@ -60,19 +79,19 @@ async def submit_answer(
     db_session = get_session(db, session_id)
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     # Verify item exists
     db_item = get_item(db, answer.item_id)
     if not db_item:
         raise HTTPException(status_code=404, detail="Question not found")
-    
+
     # Check if confidence is required for self_confidence mode
     if db_session.mode == "self_confidence" and answer.confidence is None:
         raise HTTPException(status_code=400, detail="Confidence is required in self_confidence mode")
-    
+
     # Determine if answer is correct
     is_correct = answer.chosen_option == db_item.correct_option
-    
+
     # Create interaction record
     db_interaction = create_interaction(
         db=db,
@@ -83,23 +102,26 @@ async def submit_answer(
         is_correct=is_correct,
         confidence=answer.confidence,
         response_time_ms=answer.response_time_ms,
-        attempts_count=1
+        attempts_count=1,
+        answer_changes_count=answer.answer_changes_count,
+        time_to_first_choice_ms=answer.time_to_first_choice_ms,
+        time_after_choice_ms=answer.time_after_choice_ms
     )
-    
+
     # Update Elo ratings and aggregates
     try:
         # Get current aggregates
         user_aggregate = get_or_create_user_aggregate(db, db_session.user_id)
         item_aggregate = get_or_create_item_aggregate(db, answer.item_id)
-        
-        # Update Elo ratings
-        new_user_ability, new_item_difficulty = update_elo_ratings(
+
+        # Update Elo ratings for user ability (theta_user)
+        new_user_ability, _ = update_elo_ratings(
             user_aggregate.elo_ability,
-            item_aggregate.elo_difficulty,
+            item_aggregate.elo_difficulty,  # Still used for Elo calculation, but not updated for real items
             is_correct
         )
-        
-        # Update user aggregates
+
+        # Update user aggregates (always update for both calibration and real)
         user_updates = update_user_aggregates(
             db_session.user_id,
             is_correct,
@@ -115,7 +137,7 @@ async def submit_answer(
         )
         user_updates['elo_ability'] = new_user_ability
         update_user_aggregate(db, db_session.user_id, **user_updates)
-        
+
         # Update item aggregates
         item_updates = update_item_aggregates(
             answer.item_id,
@@ -127,16 +149,41 @@ async def submit_answer(
                 'avg_confidence': item_aggregate.avg_confidence,
                 'avg_conf_gap': item_aggregate.avg_conf_gap,
                 'avg_time_ms': item_aggregate.avg_time_ms,
-                'elo_difficulty': item_aggregate.elo_difficulty
+                'elo_difficulty': item_aggregate.elo_difficulty,
+                'bb_alpha': item_aggregate.bb_alpha if hasattr(item_aggregate, 'bb_alpha') and item_aggregate.bb_alpha else 1.0,
+                'bb_beta': item_aggregate.bb_beta if hasattr(item_aggregate, 'bb_beta') and item_aggregate.bb_beta else 1.0,
+                'bb_n': item_aggregate.bb_n if hasattr(item_aggregate, 'bb_n') else 0
             }
         )
-        item_updates['elo_difficulty'] = new_item_difficulty
+
+        # Update Beta-Binomial difficulty ONLY for real interactions
+        if db_session.purpose == "real":
+            new_bb_alpha, new_bb_beta = update_beta_binomial_difficulty(
+                item_updates['bb_alpha'],
+                item_updates['bb_beta'],
+                is_correct
+            )
+            item_updates['bb_alpha'] = new_bb_alpha
+            item_updates['bb_beta'] = new_bb_beta
+            item_updates['bb_n'] = item_updates.get('bb_n', 0) + 1
+            item_updates['bb_updated_at'] = datetime.utcnow()
+
+        # Keep Elo difficulty for backward compatibility (but don't update it for real items)
+        # For calibration, we can still update Elo if needed
+        if db_session.purpose == "calibration":
+            _, new_item_difficulty = update_elo_ratings(
+                user_aggregate.elo_ability,
+                item_aggregate.elo_difficulty,
+                is_correct
+            )
+            item_updates['elo_difficulty'] = new_item_difficulty
+
         update_item_aggregate(db, answer.item_id, **item_updates)
-        
+
     except Exception as e:
         # Log error but don't fail the request
         print(f"Error updating aggregates: {e}")
-    
+
     # Generate feedback
     if is_correct:
         if language == 'ru':
@@ -148,7 +195,7 @@ async def submit_answer(
             feedback = f"Неправильно. Правильный ответ - вариант {db_item.correct_option + 1}."
         else:
             feedback = f"Incorrect. The correct answer was option {db_item.correct_option + 1}."
-    
+
     return AnswerResponse(
         is_correct=is_correct,
         correct_option=db_item.correct_option,
@@ -165,6 +212,6 @@ async def finish_session_endpoint(
     db_session = get_session(db, session_id)
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     finish_session(db, session_id)
     return {"message": "Session finished successfully"}

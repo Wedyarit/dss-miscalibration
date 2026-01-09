@@ -1,15 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, Query
+from fastapi import APIRouter, Depends, Response, Query
 from sqlalchemy.orm import Session
 from sklearn.metrics import roc_auc_score
 from app.core.config import settings
 from app.db.session import get_db
-from app.db.crud import get_interactions_for_training, get_latest_model, get_items, get_item
+from app.db.crud import get_interactions_for_training, get_latest_model, get_items, get_or_create_item_aggregate
 from app.db.models import Interaction
+from app.ml.irt_elo import get_bb_difficulty
 import numpy as np
-from app.schemas.analytics import AnalyticsOverview, ReliabilityResponse, ReliabilityBin, ProblematicItemsResponse, ProblematicItem, ExportRequest
+from app.schemas.analytics import AnalyticsOverview, ReliabilityResponse, ReliabilityBin, ProblematicItemsResponse, ProblematicItem
 from app.ml.metrics import calculate_all_metrics, reliability_diagram_data, confident_error_rate
-from app.ml.inference import predict_confident_error
-from typing import List, Optional
+from typing import Optional
 import csv
 import io
 from datetime import datetime
@@ -30,7 +30,9 @@ router = APIRouter()
 
 @router.get("/overview", response_model=AnalyticsOverview)
 async def get_analytics_overview(db: Session = Depends(get_db)):
-    interactions = get_interactions_for_training(db, limit=10000)
+    """Get calibration quality metrics (ECE/MCE/Brier) from calibration dataset"""
+    # Get only calibration interactions (where confidence is available)
+    interactions = get_interactions_for_training(db, limit=10000, purpose="calibration")
 
     if len(interactions) < 10:
         return AnalyticsOverview(
@@ -95,9 +97,9 @@ async def get_reliability_data(
     n_bins: int = 10,
     db: Session = Depends(get_db)
 ):
-    """Get reliability diagram data"""
+    """Get reliability diagram data for calibration dataset"""
 
-    interactions = get_interactions_for_training(db, limit=10000)
+    interactions = get_interactions_for_training(db, limit=10000, purpose="calibration")
 
     if len(interactions) < 10:
         return ReliabilityResponse(
@@ -148,41 +150,62 @@ async def get_problematic_items(
     language: str = Query("en", description="Language preference (en/ru)"),
     db: Session = Depends(get_db)
 ):
-    """Get items with highest confident error rates"""
+    """Get items with highest difficulty (Beta-Binomial p_error) and/or uncertainty
+
+    Updated to use Beta-Binomial difficulty instead of confident error rate,
+    since confidence may not be available in real tests.
+    """
 
     # Get all items
     items = get_items(db, limit=1000)
     problematic_items = []
 
     for item in items:
-        # Get interactions for this item
+        # Get item aggregate with BB parameters
+        item_aggregate = get_or_create_item_aggregate(db, item.id)
+
+        # Use Beta-Binomial difficulty
+        bb_alpha = getattr(item_aggregate, 'bb_alpha', 1.0) if hasattr(item_aggregate, 'bb_alpha') else 1.0
+        bb_beta = getattr(item_aggregate, 'bb_beta', 1.0) if hasattr(item_aggregate, 'bb_beta') else 1.0
+        bb_n = getattr(item_aggregate, 'bb_n', 0) if hasattr(item_aggregate, 'bb_n') else 0
+
+        if bb_n < min_interactions:
+            continue
+
+        # Calculate BB difficulty metrics
+        bb_metrics = get_bb_difficulty(bb_alpha, bb_beta)
+        p_error = bb_metrics['p_error']
+        uncertainty = bb_metrics['uncertainty']
+
+        # Get all interactions for this item (for avg_accuracy)
         interactions = db.query(Interaction).filter(Interaction.item_id == item.id).all()
-
-        if len(interactions) < min_interactions:
+        if len(interactions) == 0:
             continue
 
-        # Calculate metrics
-        confident_interactions = [i for i in interactions if i.confidence is not None and i.confidence >= threshold]
-        if len(confident_interactions) == 0:
-            continue
-
-        confident_errors = [i for i in confident_interactions if not i.is_correct]
-        confident_error_rate = len(confident_errors) / len(confident_interactions)
-
-        avg_confidence = sum(i.confidence for i in confident_interactions) / len(confident_interactions)
         avg_accuracy = sum(1 if i.is_correct else 0 for i in interactions) / len(interactions)
+
+        # For backward compatibility, try to calculate confident_error_rate if we have calibration data
+        confident_interactions = [i for i in interactions if i.confidence is not None and i.confidence >= threshold]
+        if len(confident_interactions) > 0:
+            confident_errors = [i for i in confident_interactions if not i.is_correct]
+            confident_error_rate = len(confident_errors) / len(confident_interactions)
+            avg_confidence = sum(i.confidence for i in confident_interactions) / len(confident_interactions)
+        else:
+            # Use p_error as proxy for confident_error_rate when confidence data is unavailable
+            confident_error_rate = p_error
+            avg_confidence = 0.0
 
         problematic_items.append(ProblematicItem(
             item_id=item.id,
             stem=get_localized_stem(item, language)[:100] + "..." if len(get_localized_stem(item, language)) > 100 else get_localized_stem(item, language),
             tags=get_localized_tags(item, language),
-            confident_error_rate=confident_error_rate,
+            confident_error_rate=confident_error_rate,  # Now based on BB p_error for real items
             total_interactions=len(interactions),
             avg_confidence=avg_confidence,
             avg_accuracy=avg_accuracy
         ))
 
-    # Sort by confident error rate
+    # Sort by confident_error_rate (which is now p_error for real items)
     problematic_items.sort(key=lambda x: x.confident_error_rate, reverse=True)
 
     return ProblematicItemsResponse(

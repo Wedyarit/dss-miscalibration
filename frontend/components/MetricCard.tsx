@@ -1,54 +1,51 @@
-"use client"
+'use client';
 
-import React from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Badge } from './ui/badge'
+import { Badge } from './ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 
 interface MetricCardProps {
-  title: string
-  value: string | number
-  description?: string
-  trend?: 'up' | 'down' | 'neutral'
-  variant?: 'default' | 'success' | 'warning' | 'danger'
+  title: string;
+  value: string | number;
+  description?: string;
+  trend?: 'up' | 'down' | 'neutral';
+  variant?: 'default' | 'success' | 'warning' | 'danger';
 }
 
-export function MetricCard({ 
-  title, 
-  value, 
-  description, 
+export function MetricCard({
+  title,
+  value,
+  description,
   trend = 'neutral',
-  variant = 'default' 
+  variant = 'default',
 }: MetricCardProps) {
   const getVariantStyles = () => {
     switch (variant) {
       case 'success':
-        return 'border-green-200 bg-green-50'
+        return 'border-green-200 bg-green-50';
       case 'warning':
-        return 'border-yellow-200 bg-yellow-50'
+        return 'border-yellow-200 bg-yellow-50';
       case 'danger':
-        return 'border-red-200 bg-red-50'
+        return 'border-red-200 bg-red-50';
       default:
-        return 'border-border bg-card'
+        return 'border-border bg-card';
     }
-  }
+  };
 
   const getTrendIcon = () => {
     switch (trend) {
       case 'up':
-        return '↗️'
+        return '↗️';
       case 'down':
-        return '↘️'
+        return '↘️';
       default:
-        return ''
+        return '';
     }
-  }
+  };
 
   return (
     <Card className={`${getVariantStyles()}`}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {title}
-        </CardTitle>
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
         {trend !== 'neutral' && (
           <Badge variant="outline" className="text-xs">
             {getTrendIcon()}
@@ -57,12 +54,8 @@ export function MetricCard({
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-bold">{value}</div>
-        {description && (
-          <p className="text-xs text-muted-foreground mt-1">
-            {description}
-          </p>
-        )}
+        {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
       </CardContent>
     </Card>
-  )
+  );
 }

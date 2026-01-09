@@ -1,30 +1,38 @@
-"use client"
+'use client';
 
-import React from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { useTranslation } from '@/lib/useTranslation'
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { useTranslation } from '@/lib/useTranslation';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 
 interface ReliabilityChartProps {
   data: Array<{
-    bin_low: number
-    bin_high: number
-    conf_avg: number
-    acc_avg: number
-    count: number
-  }>
-  modelVersion?: string
+    bin_low: number;
+    bin_high: number;
+    conf_avg: number;
+    acc_avg: number;
+    count: number;
+  }>;
+  modelVersion?: string;
 }
 
 export function ReliabilityChart({ data, modelVersion }: ReliabilityChartProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
   const chartData = data.map((bin) => ({
     bin: `${(bin.bin_low * 100).toFixed(0)}-${(bin.bin_high * 100).toFixed(0)}%`,
     confidence: bin.conf_avg,
     accuracy: bin.acc_avg,
     count: bin.count,
     perfect: bin.bin_low + (bin.bin_high - bin.bin_low) / 2, // Perfect calibration line
-  }))
+  }));
 
   return (
     <Card>
@@ -59,11 +67,17 @@ export function ReliabilityChart({ data, modelVersion }: ReliabilityChartProps) 
               <Tooltip
                 formatter={(value: number, name: string) => [
                   `${(value * 100).toFixed(1)}%`,
-                  name === 'confidence' ? t('instructor.reliabilityChart.confidence') :
-                  name === 'accuracy' ? t('instructor.reliabilityChart.accuracy') :
-                  name === 'perfect' ? t('instructor.reliabilityChart.perfectCalibration') : name
+                  name === 'confidence'
+                    ? t('instructor.reliabilityChart.confidence')
+                    : name === 'accuracy'
+                      ? t('instructor.reliabilityChart.accuracy')
+                      : name === 'perfect'
+                        ? t('instructor.reliabilityChart.perfectCalibration')
+                        : name,
                 ]}
-                labelFormatter={(label) => `${t('instructor.reliabilityChart.confidenceRange')}: ${label}`}
+                labelFormatter={(label) =>
+                  `${t('instructor.reliabilityChart.confidenceRange')}: ${label}`
+                }
               />
               <Bar
                 dataKey="confidence"
@@ -98,5 +112,5 @@ export function ReliabilityChart({ data, modelVersion }: ReliabilityChartProps) 
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

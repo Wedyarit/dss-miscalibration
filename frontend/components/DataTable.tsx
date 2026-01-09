@@ -1,42 +1,39 @@
-"use client"
-
-import React from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Badge } from './ui/badge'
+'use client';
+import { Badge } from './ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 
 interface DataTableProps {
   data: Array<{
-    id: number
-    stem: string
-    tags: string[]
-    confident_error_rate: number
-    total_interactions: number
-    avg_confidence: number
-    avg_accuracy: number
-  }>
-  title?: string
+    item_id: number;
+    stem: string;
+    tags: string[];
+    confident_error_rate: number;
+    total_interactions: number;
+    avg_confidence: number;
+    avg_accuracy: number;
+  }>;
+  title: string;
   headers?: {
-    question: string
-    tags: string
-    confidentErrorRate: string
-    interactions: string
-    avgConfidence: string
-    avgAccuracy: string
-  }
+    question: string;
+    tags: string;
+    confidentErrorRate: string;
+    interactions: string;
+    avgConfidence: string;
+    avgAccuracy: string;
+  };
 }
 
-export function DataTable({ data, title = "Data Table", headers }: DataTableProps) {
-  // Default headers
+export function DataTable({ data, title, headers }: DataTableProps) {
   const defaultHeaders = {
-    question: "Question",
-    tags: "Tags",
-    confidentErrorRate: "Confident Error Rate",
-    interactions: "Interactions",
-    avgConfidence: "Avg Confidence",
-    avgAccuracy: "Avg Accuracy"
-  }
-  
-  const tableHeaders = headers || defaultHeaders
+    question: 'Question',
+    tags: 'Tags',
+    confidentErrorRate: 'Confident Error Rate',
+    interactions: 'Interactions',
+    avgConfidence: 'Avg Confidence',
+    avgAccuracy: 'Avg Accuracy',
+  };
+
+  const tableHeaders = headers || defaultHeaders;
   return (
     <Card>
       <CardHeader>
@@ -57,7 +54,7 @@ export function DataTable({ data, title = "Data Table", headers }: DataTableProp
             </thead>
             <tbody>
               {data.map((item) => (
-                <tr key={item.id} className="border-b hover:bg-muted/50">
+                <tr key={item.item_id} className="border-b hover:bg-muted/50">
                   <td className="p-2">
                     <div className="max-w-xs truncate" title={item.stem}>
                       {item.stem}
@@ -73,9 +70,7 @@ export function DataTable({ data, title = "Data Table", headers }: DataTableProp
                     </div>
                   </td>
                   <td className="p-2">
-                    <Badge 
-                      variant={item.confident_error_rate > 0.3 ? "destructive" : "secondary"}
-                    >
+                    <Badge variant={item.confident_error_rate > 0.3 ? 'destructive' : 'secondary'}>
                       {(item.confident_error_rate * 100).toFixed(1)}%
                     </Badge>
                   </td>
@@ -89,5 +84,5 @@ export function DataTable({ data, title = "Data Table", headers }: DataTableProp
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

@@ -1,131 +1,127 @@
-"use client"
+'use client';
 
-import React, { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { DataTable } from '@/components/DataTable'
-import { AnimatedText } from '@/components/AnimatedText'
-import { questionsApi } from '@/lib/api'
-import { Question } from '@/lib/types'
-import { useTranslation } from '@/lib/useTranslation'
+import { useCallback, useEffect, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { questionsApi } from '@/lib/api';
+import { Question } from '@/lib/types';
+import { useTranslation } from '@/lib/useTranslation';
 
 export default function AdminQuestionsPage() {
-  const [questions, setQuestions] = useState<Question[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isCreating, setIsCreating] = useState(false)
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
   const [newQuestion, setNewQuestion] = useState({
     stem: '',
     options: ['', '', '', ''],
     correct_option: 0,
     tags: '',
-    difficulty_hint: ''
-  })
-  const { t, language } = useTranslation()
+    difficulty_hint: '',
+  });
+  const { t, language } = useTranslation();
+
+  const loadQuestions = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const response = await questionsApi.list(0, 100, undefined, language);
+      setQuestions(response.questions);
+    } catch (error) {
+      console.error('Failed to load questions:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [language]);
 
   useEffect(() => {
-    loadQuestions()
-  }, [language])
-
-  const loadQuestions = async () => {
-    try {
-      setIsLoading(true)
-      const response = await questionsApi.list(0, 100, undefined, language)
-      setQuestions(response.questions)
-    } catch (error) {
-      console.error('Failed to load questions:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+    loadQuestions();
+  }, [loadQuestions]);
 
   const handleCreateQuestion = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
     try {
-      setIsCreating(true)
+      setIsCreating(true);
 
       const questionData = {
         stem: newQuestion.stem,
-        options: newQuestion.options.filter(opt => opt.trim() !== ''),
+        options: newQuestion.options.filter((opt) => opt.trim() !== ''),
         correct_option: newQuestion.correct_option,
-        tags: newQuestion.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
-        difficulty_hint: newQuestion.difficulty_hint ? parseFloat(newQuestion.difficulty_hint) : undefined
-      }
+        tags: newQuestion.tags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter((tag) => tag !== ''),
+        difficulty_hint: newQuestion.difficulty_hint
+          ? parseFloat(newQuestion.difficulty_hint)
+          : undefined,
+      };
 
-      await questionsApi.create(questionData)
+      await questionsApi.create(questionData);
 
-      // Reset form
       setNewQuestion({
         stem: '',
         options: ['', '', '', ''],
         correct_option: 0,
         tags: '',
-        difficulty_hint: ''
-      })
+        difficulty_hint: '',
+      });
 
-      // Reload questions
-      await loadQuestions()
+      await loadQuestions();
     } catch (error) {
-      console.error('Failed to create question:', error)
+      console.error('Failed to create question:', error);
     } finally {
-      setIsCreating(false)
+      setIsCreating(false);
     }
-  }
+  };
 
   const updateOption = (index: number, value: string) => {
-    const newOptions = [...newQuestion.options]
-    newOptions[index] = value
-    setNewQuestion({ ...newQuestion, options: newOptions })
-  }
+    const newOptions = [...newQuestion.options];
+    newOptions[index] = value;
+    setNewQuestion({ ...newQuestion, options: newOptions });
+  };
 
   const addOption = () => {
     if (newQuestion.options.length < 6) {
       setNewQuestion({
         ...newQuestion,
-        options: [...newQuestion.options, '']
-      })
+        options: [...newQuestion.options, ''],
+      });
     }
-  }
+  };
 
   const removeOption = (index: number) => {
     if (newQuestion.options.length > 2) {
-      const newOptions = newQuestion.options.filter((_, i) => i !== index)
+      const newOptions = newQuestion.options.filter((_, i) => i !== index);
       setNewQuestion({
         ...newQuestion,
         options: newOptions,
-        correct_option: Math.min(newQuestion.correct_option, newOptions.length - 1)
-      })
+        correct_option: Math.min(newQuestion.correct_option, newOptions.length - 1),
+      });
     }
-  }
+  };
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-6xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">
-            {t("adminQuestions.title")}
-          </h1>
-          <p className="text-muted-foreground">
-            {t('adminQuestions.subtitle')}
-          </p>
+          <h1 className="text-3xl font-bold">{t('adminQuestions.title')}</h1>
+          <p className="text-muted-foreground">{t('adminQuestions.subtitle')}</p>
         </div>
 
         {/* Create Question Form */}
         <Card>
           <CardHeader>
-            <CardTitle>
-              {t("adminQuestions.createNew")}
-            </CardTitle>
+            <CardTitle>{t('adminQuestions.createNew')}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleCreateQuestion} className="space-y-4">
               <div>
-                <label className="text-sm font-medium">
-                  {t("adminQuestions.form.questionText")}
+                <label htmlFor="question-text" className="text-sm font-medium">
+                  {t('adminQuestions.form.questionText')}
                 </label>
                 <textarea
+                  id="question-text"
                   value={newQuestion.stem}
                   onChange={(e) => setNewQuestion({ ...newQuestion, stem: e.target.value })}
                   className="w-full mt-1 p-3 border rounded-md"
@@ -135,13 +131,11 @@ export default function AdminQuestionsPage() {
                 />
               </div>
 
-              <div>
-                <label className="text-sm font-medium">
-                  {t("adminQuestions.form.options")}
-                </label>
+              <fieldset>
+                <legend className="text-sm font-medium">{t('adminQuestions.form.options')}</legend>
                 <div className="space-y-2 mt-1">
                   {newQuestion.options.map((option, index) => (
-                    <div key={index} className="flex items-center space-x-2">
+                    <div key={`option-${index}-${option}`} className="flex items-center space-x-2">
                       <input
                         type="radio"
                         name="correct_option"
@@ -152,7 +146,10 @@ export default function AdminQuestionsPage() {
                       <Input
                         value={option}
                         onChange={(e) => updateOption(index, e.target.value)}
-                        placeholder={t('adminQuestions.placeholders.option').replace('{number}', (index + 1).toString())}
+                        placeholder={t('adminQuestions.placeholders.option').replace(
+                          '{number}',
+                          (index + 1).toString()
+                        )}
                         required
                       />
                       {newQuestion.options.length > 2 && (
@@ -179,13 +176,11 @@ export default function AdminQuestionsPage() {
                     {t('adminQuestions.form.addOption')}
                   </Button>
                 )}
-              </div>
+              </fieldset>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium">
-                    {t("adminQuestions.form.tags")}
-                  </label>
+                  <label className="text-sm font-medium">{t('adminQuestions.form.tags')}</label>
                   <Input
                     value={newQuestion.tags}
                     onChange={(e) => setNewQuestion({ ...newQuestion, tags: e.target.value })}
@@ -195,7 +190,7 @@ export default function AdminQuestionsPage() {
                 </div>
                 <div>
                   <label className="text-sm font-medium">
-                    {t("adminQuestions.form.difficulty")}
+                    {t('adminQuestions.form.difficulty')}
                   </label>
                   <Input
                     type="number"
@@ -203,7 +198,9 @@ export default function AdminQuestionsPage() {
                     max="10"
                     step="0.1"
                     value={newQuestion.difficulty_hint}
-                    onChange={(e) => setNewQuestion({ ...newQuestion, difficulty_hint: e.target.value })}
+                    onChange={(e) =>
+                      setNewQuestion({ ...newQuestion, difficulty_hint: e.target.value })
+                    }
                     placeholder={t('adminQuestions.placeholders.difficulty')}
                     className="mt-1"
                   />
@@ -221,7 +218,9 @@ export default function AdminQuestionsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              <span>{t('adminQuestions.questionBank')} ({questions.length})</span>
+              <span>
+                {t('adminQuestions.questionBank')} ({questions.length})
+              </span>
               <Button onClick={loadQuestions} variant="outline" size="sm">
                 {t('adminQuestions.actions.refresh')}
               </Button>
@@ -253,16 +252,19 @@ export default function AdminQuestionsPage() {
                       <div className="space-y-1">
                         {question.options.map((option, index) => (
                           <div
-                            key={index}
+                            key={`option-${index}-${option}`}
                             className={`text-sm p-2 rounded ${
                               index === question.correct_option
                                 ? 'bg-green-100 text-green-800'
                                 : 'bg-gray-100'
                             }`}
                           >
-                            <span className="font-medium">{String.fromCharCode(65 + index)}.</span> {option}
+                            <span className="font-medium">{String.fromCharCode(65 + index)}.</span>{' '}
+                            {option}
                             {index === question.correct_option && (
-                              <Badge variant="default" className="ml-2">Correct</Badge>
+                              <Badge variant="default" className="ml-2">
+                                {t('adminQuestions.table.correct')}
+                              </Badge>
                             )}
                           </div>
                         ))}
@@ -288,5 +290,5 @@ export default function AdminQuestionsPage() {
         </Card>
       </div>
     </div>
-  )
+  );
 }

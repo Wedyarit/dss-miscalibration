@@ -1,17 +1,16 @@
-"use client"
+'use client';
 
-import React from 'react'
-import { Button } from './ui/button'
-import { Card, CardContent } from './ui/card'
-import { useTranslation } from '@/lib/useTranslation'
+import { useTranslation } from '@/lib/useTranslation';
+import { Button } from './ui/button';
+import { Card, CardContent } from './ui/card';
 
 interface ModeToggleProps {
-  mode: 'standard' | 'self_confidence'
-  onModeChange: (mode: 'standard' | 'self_confidence') => void
+  mode: 'standard' | 'self_confidence';
+  onModeChange: (mode: 'standard' | 'self_confidence') => void;
 }
 
 export function ModeToggle({ mode, onModeChange }: ModeToggleProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   return (
     <Card className="w-full max-w-md mx-auto">
@@ -37,13 +36,12 @@ export function ModeToggle({ mode, onModeChange }: ModeToggleProps) {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            {mode === 'standard' 
+            {mode === 'standard'
               ? t('studentTest.modeSelection.standardDescription')
-              : t('studentTest.modeSelection.selfConfidenceDescription')
-            }
+              : t('studentTest.modeSelection.selfConfidenceDescription')}
           </p>
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

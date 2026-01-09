@@ -1,103 +1,112 @@
-"use client"
+'use client';
 
-import React, { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { MetricCard } from '@/components/MetricCard'
-import { AnimatedText } from '@/components/AnimatedText'
-import { adminApi, analyticsApi } from '@/lib/api'
-import { AnalyticsOverview, TrainRequest, TrainResponse } from '@/lib/types'
-import { useTranslation } from '@/lib/useTranslation'
+import { useCallback, useEffect, useState } from 'react';
+import { MetricCard } from '@/components/MetricCard';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { adminApi, analyticsApi } from '@/lib/api';
+import { AnalyticsOverview, TrainRequest, TrainResponse } from '@/lib/types';
+import { useTranslation } from '@/lib/useTranslation';
 
 export default function AdminDatasetsPage() {
-  const [overview, setOverview] = useState<AnalyticsOverview | null>(null)
-  const [isSeeding, setIsSeeding] = useState(false)
-  const [isTraining, setIsTraining] = useState(false)
-  const [seedResult, setSeedResult] = useState<any>(null)
-  const [trainResult, setTrainResult] = useState<TrainResponse | null>(null)
+  const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
+  const [isSeeding, setIsSeeding] = useState(false);
+  const [isTraining, setIsTraining] = useState(false);
+  const [seedResult, setSeedResult] = useState<{
+    users_created?: number;
+    questions_created?: number;
+    questions_seeded?: number;
+    sessions_created?: number;
+    interactions_created?: number;
+    purpose_fixed?: {
+      calibration_sessions?: number;
+      real_sessions?: number;
+    };
+    error?: string;
+  } | null>(null);
+  const [trainResult, setTrainResult] = useState<TrainResponse | null>(null);
   const [trainConfig, setTrainConfig] = useState<TrainRequest>({
     confidence_threshold: 0.7,
     calibration: 'platt',
     bins: 10,
-    test_size: 0.2
-  })
-  const { t } = useTranslation()
+    test_size: 0.2,
+  });
+  const { t } = useTranslation();
+
+  const loadOverview = useCallback(async () => {
+    try {
+      const data = await analyticsApi.getOverview();
+      setOverview(data);
+    } catch (error) {
+      console.error('Failed to load overview:', error);
+    }
+  }, []);
 
   useEffect(() => {
-    loadOverview()
-  }, [])
-
-  const loadOverview = async () => {
-    try {
-      const data = await analyticsApi.getOverview()
-      setOverview(data)
-    } catch (error) {
-      console.error('Failed to load overview:', error)
-    }
-  }
+    loadOverview();
+  }, [loadOverview]);
 
   const handleSeedDatabase = async () => {
     try {
-      setIsSeeding(true)
-      const result = await adminApi.seedDatabase()
-      setSeedResult(result)
-      await loadOverview() // Refresh data
+      setIsSeeding(true);
+      setSeedResult(null);
+      const result = await adminApi.seedDatabase();
+      setSeedResult(result);
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await loadOverview();
     } catch (error) {
-      console.error('Failed to seed database:', error)
+      console.error('Failed to seed database:', error);
+      setSeedResult({
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      });
     } finally {
-      setIsSeeding(false)
+      setIsSeeding(false);
     }
-  }
+  };
 
   const handleTrainModel = async () => {
     try {
-      setIsTraining(true)
-      const result = await adminApi.trainModel(trainConfig)
-      setTrainResult(result)
-      await loadOverview() // Refresh data
+      setIsTraining(true);
+      const result = await adminApi.trainModel(trainConfig);
+      setTrainResult(result);
+      await loadOverview();
     } catch (error) {
-      console.error('Failed to train model:', error)
+      console.error('Failed to train model:', error);
     } finally {
-      setIsTraining(false)
+      setIsTraining(false);
     }
-  }
+  };
 
   const handleExportData = async () => {
     try {
-      const blob = await analyticsApi.exportInteractions()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'interactions.csv'
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      const blob = await analyticsApi.exportInteractions();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'interactions.csv';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
     } catch (error) {
-      console.error('Failed to export data:', error)
+      console.error('Failed to export data:', error);
     }
-  }
+  };
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-6xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">
-            {t("adminDatasets.title")}
-          </h1>
-          <p className="text-muted-foreground">
-            {t('adminDatasets.subtitle')}
-          </p>
+          <h1 className="text-3xl font-bold">{t('adminDatasets.title')}</h1>
+          <p className="text-muted-foreground">{t('adminDatasets.subtitle')}</p>
         </div>
 
         {/* Current Status */}
         {overview && (
           <Card>
             <CardHeader>
-              <CardTitle>
-                {t("adminDatasets.currentStatus")}
-              </CardTitle>
+              <CardTitle>{t('adminDatasets.currentStatus')}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -120,7 +129,13 @@ export default function AdminDatasetsPage() {
                   title={t('adminDatasets.labels.confidentErrorRate')}
                   value={`${(overview.confident_error_rate * 100).toFixed(1)}%`}
                   description={t('adminDatasets.labels.errorRate')}
-                  variant={overview.confident_error_rate < 0.2 ? 'success' : overview.confident_error_rate > 0.4 ? 'danger' : 'warning'}
+                  variant={
+                    overview.confident_error_rate < 0.2
+                      ? 'success'
+                      : overview.confident_error_rate > 0.4
+                        ? 'danger'
+                        : 'warning'
+                  }
                 />
               </div>
             </CardContent>
@@ -130,32 +145,78 @@ export default function AdminDatasetsPage() {
         {/* Database Seeding */}
         <Card>
           <CardHeader>
-            <CardTitle>
-              {t("adminDatasets.seedDatabase")}
-            </CardTitle>
+            <CardTitle>{t('adminDatasets.seedDatabase')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {t('adminDatasets.descriptions.seed')}
-            </p>
+            <p className="text-sm text-muted-foreground">{t('adminDatasets.descriptions.seed')}</p>
 
-            <Button
-              onClick={handleSeedDatabase}
-              disabled={isSeeding}
-              className="w-full md:w-auto"
-            >
-              {isSeeding ? t('adminDatasets.status.seeding') : t('adminDatasets.actions.seed')}
+            <Button onClick={handleSeedDatabase} disabled={isSeeding} className="w-full md:w-auto">
+              {isSeeding ? (
+                <span className="flex items-center gap-2">
+                  <span className="animate-spin">⏳</span>
+                  {t('adminDatasets.status.seeding')}
+                </span>
+              ) : (
+                t('adminDatasets.actions.seed')
+              )}
             </Button>
 
             {seedResult && (
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <h4 className="font-medium text-green-800 mb-2">Seeding Complete!</h4>
-                <div className="text-sm text-green-700 space-y-1">
-                  <p>• Users created: {seedResult.users_created}</p>
-                  <p>• Questions created: {seedResult.questions_created}</p>
-                  <p>• Sessions created: {seedResult.sessions_created}</p>
-                  <p>• Interactions created: {seedResult.interactions_created}</p>
-                </div>
+              <div
+                className={`p-4 border rounded-lg ${
+                  seedResult.error ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'
+                }`}
+              >
+                <h4
+                  className={`font-medium mb-2 ${
+                    seedResult.error ? 'text-red-800' : 'text-green-800'
+                  }`}
+                >
+                  {seedResult.error
+                    ? t('adminDatasets.seedResult.failed')
+                    : t('adminDatasets.seedResult.success')}
+                </h4>
+                {seedResult.error ? (
+                  <p className="text-sm text-red-700">{seedResult.error}</p>
+                ) : (
+                  <div className="text-sm text-green-700 space-y-1">
+                    <p>
+                      • {t('adminDatasets.seedResult.usersCreated')}:{' '}
+                      {seedResult.users_created || 0}
+                    </p>
+                    <p>
+                      • {t('adminDatasets.seedResult.questionsCreated')}:{' '}
+                      {seedResult.questions_created || 0}
+                    </p>
+                    {seedResult.questions_seeded !== undefined && (
+                      <p>
+                        • {t('adminDatasets.seedResult.questionsWithRussian')}:{' '}
+                        {seedResult.questions_seeded}
+                      </p>
+                    )}
+                    <p>
+                      • {t('adminDatasets.seedResult.sessionsCreated')}:{' '}
+                      {seedResult.sessions_created || 0}
+                    </p>
+                    <p>
+                      • {t('adminDatasets.seedResult.interactionsCreated')}:{' '}
+                      {seedResult.interactions_created || 0}
+                    </p>
+                    {seedResult.purpose_fixed && (
+                      <div className="mt-2 pt-2 border-t border-green-300">
+                        <p className="font-medium">{t('adminDatasets.seedResult.purposeFixed')}:</p>
+                        <p>
+                          • {t('adminDatasets.seedResult.calibrationSessions')}:{' '}
+                          {seedResult.purpose_fixed.calibration_sessions || 0}
+                        </p>
+                        <p>
+                          • {t('adminDatasets.seedResult.realSessions')}:{' '}
+                          {seedResult.purpose_fixed.real_sessions || 0}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -164,43 +225,48 @@ export default function AdminDatasetsPage() {
         {/* Model Training */}
         <Card>
           <CardHeader>
-            <CardTitle>
-              {t("adminDatasets.trainModel")}
-            </CardTitle>
+            <CardTitle>{t('adminDatasets.trainModel')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {t('adminDatasets.descriptions.train')}
-            </p>
+            <p className="text-sm text-muted-foreground">{t('adminDatasets.descriptions.train')}</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium">{t('adminDatasets.config.confidenceThreshold')}</label>
+                <label className="text-sm font-medium">
+                  {t('adminDatasets.config.confidenceThreshold')}
+                </label>
                 <input
                   type="range"
                   min="0.5"
                   max="0.9"
                   step="0.1"
                   value={trainConfig.confidence_threshold}
-                  onChange={(e) => setTrainConfig({
-                    ...trainConfig,
-                    confidence_threshold: parseFloat(e.target.value)
-                  })}
+                  onChange={(e) =>
+                    setTrainConfig({
+                      ...trainConfig,
+                      confidence_threshold: parseFloat(e.target.value),
+                    })
+                  }
                   className="w-full mt-1"
                 />
                 <p className="text-xs text-muted-foreground">
-                  {trainConfig.confidence_threshold} {t('adminDatasets.config.thresholdDescription')}
+                  {trainConfig.confidence_threshold}{' '}
+                  {t('adminDatasets.config.thresholdDescription')}
                 </p>
               </div>
 
               <div>
-                <label className="text-sm font-medium">{t('adminDatasets.config.calibration')}</label>
+                <label className="text-sm font-medium">
+                  {t('adminDatasets.config.calibration')}
+                </label>
                 <select
                   value={trainConfig.calibration}
-                  onChange={(e) => setTrainConfig({
-                    ...trainConfig,
-                    calibration: e.target.value as 'platt' | 'isotonic' | 'none'
-                  })}
+                  onChange={(e) =>
+                    setTrainConfig({
+                      ...trainConfig,
+                      calibration: e.target.value as 'platt' | 'isotonic' | 'none',
+                    })
+                  }
                   className="w-full mt-1 p-2 border rounded-md"
                 >
                   <option value="platt">Platt Scaling</option>
@@ -216,10 +282,12 @@ export default function AdminDatasetsPage() {
                   min="5"
                   max="20"
                   value={trainConfig.bins}
-                  onChange={(e) => setTrainConfig({
-                    ...trainConfig,
-                    bins: parseInt(e.target.value)
-                  })}
+                  onChange={(e) =>
+                    setTrainConfig({
+                      ...trainConfig,
+                      bins: parseInt(e.target.value, 10),
+                    })
+                  }
                   className="w-full mt-1 p-2 border rounded-md"
                 />
               </div>
@@ -232,14 +300,17 @@ export default function AdminDatasetsPage() {
                   max="0.5"
                   step="0.1"
                   value={trainConfig.test_size}
-                  onChange={(e) => setTrainConfig({
-                    ...trainConfig,
-                    test_size: parseFloat(e.target.value)
-                  })}
+                  onChange={(e) =>
+                    setTrainConfig({
+                      ...trainConfig,
+                      test_size: parseFloat(e.target.value),
+                    })
+                  }
                   className="w-full mt-1"
                 />
                 <p className="text-xs text-muted-foreground">
-                  {Math.round(trainConfig.test_size * 100)}% {t('adminDatasets.config.testSizeDescription')}
+                  {Math.round((trainConfig.test_size || 0.2) * 100)}%{' '}
+                  {t('adminDatasets.config.testSizeDescription')}
                 </p>
               </div>
             </div>
@@ -253,14 +324,16 @@ export default function AdminDatasetsPage() {
             </Button>
 
             {trainResult && (
-              <div className={`p-4 border rounded-lg ${
-                trainResult.success 
-                  ? 'bg-green-50 border-green-200' 
-                  : 'bg-red-50 border-red-200'
-              }`}>
-                <h4 className={`font-medium mb-2 ${
-                  trainResult.success ? 'text-green-800' : 'text-red-800'
-                }`}>
+              <div
+                className={`p-4 border rounded-lg ${
+                  trainResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                }`}
+              >
+                <h4
+                  className={`font-medium mb-2 ${
+                    trainResult.success ? 'text-green-800' : 'text-red-800'
+                  }`}
+                >
                   {trainResult.success ? 'Training Complete!' : 'Training Failed'}
                 </h4>
 
@@ -296,25 +369,19 @@ export default function AdminDatasetsPage() {
         {/* Data Export */}
         <Card>
           <CardHeader>
-            <CardTitle>
-              {t("adminDatasets.exportData")}
-            </CardTitle>
+            <CardTitle>{t('adminDatasets.exportData')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {t('adminDatasets.descriptions.export')}
             </p>
 
-            <Button
-              onClick={handleExportData}
-              variant="outline"
-              className="w-full md:w-auto"
-            >
+            <Button onClick={handleExportData} variant="outline" className="w-full md:w-auto">
               {t('adminDatasets.actions.export')}
             </Button>
           </CardContent>
         </Card>
       </div>
     </div>
-  )
+  );
 }

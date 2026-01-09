@@ -76,8 +76,8 @@ def get_localized_item(item: Item, language: str = 'en') -> dict:
         }
 
 # Session CRUD
-def create_session(db: Session, user_id: int, mode: str) -> DBSession:
-    db_session = DBSession(user_id=user_id, mode=mode)
+def create_session(db: Session, user_id: int, mode: str, purpose: str = "real") -> DBSession:
+    db_session = DBSession(user_id=user_id, mode=mode, purpose=purpose)
     db.add(db_session)
     db.commit()
     db.refresh(db_session)
@@ -93,7 +93,10 @@ def finish_session(db: Session, session_id: int):
 # Interaction CRUD
 def create_interaction(db: Session, session_id: int, user_id: int, item_id: int, 
                       chosen_option: int, is_correct: bool, confidence: Optional[float], 
-                      response_time_ms: int, attempts_count: int = 1) -> Interaction:
+                      response_time_ms: int, attempts_count: int = 1,
+                      answer_changes_count: Optional[int] = None,
+                      time_to_first_choice_ms: Optional[int] = None,
+                      time_after_choice_ms: Optional[int] = None) -> Interaction:
     db_interaction = Interaction(
         session_id=session_id,
         user_id=user_id,
@@ -102,7 +105,10 @@ def create_interaction(db: Session, session_id: int, user_id: int, item_id: int,
         is_correct=is_correct,
         confidence=confidence,
         response_time_ms=response_time_ms,
-        attempts_count=attempts_count
+        attempts_count=attempts_count,
+        answer_changes_count=answer_changes_count or 0,
+        time_to_first_choice_ms=time_to_first_choice_ms,
+        time_after_choice_ms=time_after_choice_ms
     )
     db.add(db_interaction)
     db.commit()
@@ -115,8 +121,16 @@ def get_interactions_by_session(db: Session, session_id: int) -> List[Interactio
 def get_interactions_by_user(db: Session, user_id: int, limit: int = 100) -> List[Interaction]:
     return db.query(Interaction).filter(Interaction.user_id == user_id).order_by(desc(Interaction.timestamp)).limit(limit).all()
 
-def get_interactions_for_training(db: Session, limit: int = 10000) -> List[Interaction]:
-    return db.query(Interaction).filter(Interaction.confidence.isnot(None)).limit(limit).all()
+def get_interactions_for_training(db: Session, limit: int = 10000, purpose: str = "calibration") -> List[Interaction]:
+    """
+    Get interactions for training. By default, returns only calibration interactions.
+    For calibration dataset: purpose='calibration' and confidence is not None.
+    """
+    query = db.query(Interaction).join(DBSession).filter(DBSession.purpose == purpose)
+    if purpose == "calibration":
+        # For calibration, we need confidence
+        query = query.filter(Interaction.confidence.isnot(None))
+    return query.limit(limit).all()
 
 # Aggregate CRUD
 def get_or_create_user_aggregate(db: Session, user_id: int) -> AggregateUser:
@@ -131,10 +145,22 @@ def get_or_create_user_aggregate(db: Session, user_id: int) -> AggregateUser:
 def get_or_create_item_aggregate(db: Session, item_id: int) -> AggregateItem:
     aggregate = db.query(AggregateItem).filter(AggregateItem.item_id == item_id).first()
     if not aggregate:
-        aggregate = AggregateItem(item_id=item_id)
+        aggregate = AggregateItem(
+            item_id=item_id,
+            bb_alpha=1.0,  # Laplace prior
+            bb_beta=1.0,
+            bb_n=0
+        )
         db.add(aggregate)
         db.commit()
         db.refresh(aggregate)
+    # Ensure BB fields are initialized (for backward compatibility with existing records)
+    if aggregate.bb_alpha is None or aggregate.bb_alpha == 0:
+        aggregate.bb_alpha = 1.0
+    if aggregate.bb_beta is None or aggregate.bb_beta == 0:
+        aggregate.bb_beta = 1.0
+    if aggregate.bb_n is None:
+        aggregate.bb_n = 0
     return aggregate
 
 def update_user_aggregate(db: Session, user_id: int, **kwargs):

@@ -7,7 +7,6 @@ import json
 import os
 
 import numpy as np
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import average_precision_score
 
 from app.core.config import settings
@@ -40,6 +39,9 @@ class RollingAgg:
     elo: float = 1000.0
     # для streak (последние k исходов)
     recent_corrects: List[int] = None
+    # Beta-Binomial parameters for items
+    bb_alpha: float = 1.0
+    bb_beta: float = 1.0
 
     def __post_init__(self):
         if self.recent_corrects is None:
@@ -103,8 +105,11 @@ def _build_training_rows(interactions, conf_thr: float) -> Tuple[np.ndarray, np.
             "recent_streak": _streak_from_recent(u.recent_corrects),
         }
 
+        # Use Beta-Binomial difficulty for items (as in real tests)
         item_agg_dict = {
-            "elo_difficulty": it.elo,
+            "bb_alpha": it.bb_alpha,
+            "bb_beta": it.bb_beta,
+            "elo_difficulty": it.elo,  # Legacy, kept for compatibility
             "avg_accuracy": it.ema_accuracy,
             "avg_time_ms": it.avg_time_ms,
         }
@@ -117,9 +122,11 @@ def _build_training_rows(interactions, conf_thr: float) -> Tuple[np.ndarray, np.
         # используем уже готовые экстракторы (они сами возьмут нужные поля)
         uf = extract_user_features(inter.user_id, user_agg_dict, [])  # уже содержит recent_streak
         itf = extract_item_features(inter.item_id, item_agg_dict, item_data)
+        # Build interaction features WITHOUT confidence (as in real tests)
+        # This ensures model works in production where confidence may not be available
         intf = extract_interaction_features(
             {
-                "confidence": inter.confidence,
+                # Don't include confidence - model should work without it
                 "response_time_ms": inter.response_time_ms,
                 "attempts_count": inter.attempts_count,
             }
@@ -134,6 +141,11 @@ def _build_training_rows(interactions, conf_thr: float) -> Tuple[np.ndarray, np.
         # теперь ОБНОВЛЯЕМ состояние "после" ответа — уже не влияет на текущие фичи
         _update_user_roll(u, inter.is_correct, inter.confidence, inter.response_time_ms)
         _update_user_roll(it, inter.is_correct, inter.confidence, inter.response_time_ms)
+        # Update Beta-Binomial for item (simulating real test updates)
+        if inter.is_correct:
+            it.bb_alpha += 1.0
+        else:
+            it.bb_beta += 1.0
         user_state[uid] = u
         item_state[iid] = it
 
@@ -183,7 +195,8 @@ def train_model(
     """
     db = SessionLocal()
     try:
-        inters = get_interactions_for_training(db, limit=10000)
+        # Get only calibration interactions (where confidence is available)
+        inters = get_interactions_for_training(db, limit=10000, purpose="calibration")
         if len(inters) < 50:
             return {
                 "success": False,

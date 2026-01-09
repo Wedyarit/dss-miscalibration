@@ -10,7 +10,7 @@ import numpy as np
 
 from app.db.base import create_tables
 from app.db.session import SessionLocal
-from app.db.models import User, Item, Interaction, AggregateUser, AggregateItem
+from app.db.models import User, Item, Interaction
 from app.db.crud import (
     create_user,
     get_users_by_role,
@@ -22,17 +22,18 @@ from app.db.crud import (
     update_user_aggregate,
     update_item_aggregate,
 )
-from app.ml.irt_elo import update_elo_ratings, update_user_aggregates, update_item_aggregates
+from app.ml.irt_elo import update_elo_ratings, update_user_aggregates, update_item_aggregates, update_beta_binomial_difficulty
 
 
 """
-Human-like interaction seeder (patched).
+Human-like interaction seeder (updated for Beta-Binomial + purpose separation).
 
-Changes vs. the original version:
-- More realistic response-time tails (no hard 20s cap; increased base and variance).
-- Almost no missing confidence in standard mode; confidence is quantized to UI-friendly buckets.
-- Slight global positive shift for confidence (+0.03) and a bit more noise.
-- Lower probability of a second attempt (attempts_count=2) to match observed user logs.
+Key changes:
+- Two distinct data modes: self_confidence (calibration) with confidence, standard (real) without
+- Realistic confidence calibration with Dunning-Kruger effects and hard-item overconfidence
+- Personas with favorite tags and domain-specific skills
+- Time-separated datasets (calibration earlier, real later)
+- Beta-Binomial difficulty updates only for real sessions
 """
 
 
@@ -40,15 +41,21 @@ Changes vs. the original version:
 # Configuration
 # =========================
 class CONFIG:
-    NUM_STUDENTS = 30                  # Ensure at least this many students
-    SESSIONS_PER_STUDENT = (5, 9)      # Range of session counts per student
-    QUESTIONS_PER_SESSION = (10, 18)   # Range of question counts per session
-    SELF_CONFIDENCE_SHARE = 0.7        # Share of sessions in self_confidence mode
-    # Was 0.7 in the original; that produced too many missing confidences. Keep almost all confidences.
-    CONF_MISS_PROB_STANDARD = 0.05     # Probability that confidence is missing in standard mode
+    NUM_STUDENTS = 25                  # Reduced for faster seeding
+    SESSIONS_PER_STUDENT = (6, 10)     # Range of session counts per student (reduced)
+    QUESTIONS_PER_SESSION = (8, 15)    # Range of question counts per session (reduced)
+    SELF_CONFIDENCE_SHARE = 0.35       # Share of sessions in self_confidence mode (calibration dataset)
+    # Reduced to balance speed and data quality
+    # With 25 students * 8 avg sessions * 0.35 * 14 avg questions ≈ 980 interactions total
+    # ≈ 343 calibration interactions with confidence (sufficient for training)
+    # Standard mode still dominates (65%) - real test scenario
+    CONF_MISS_PROB_STANDARD = 0.98     # Probability that confidence is missing in standard mode (almost always None)
+    CONF_MISS_PROB_SELF_CONF = 0.01    # Probability that confidence is missing in self_confidence mode (rare)
     REPETITION_PROB = 0.25             # Chance to repeat a previously seen item across sessions
     BASE_DATE_DAYS = 28                # Simulate behavior for the last X days
+    CALIBRATION_DAYS = 7               # First N days for calibration (self_confidence) sessions
     RANDOM_SEED = 42                   # Reproducibility; set to None for full randomness
+    FAVORITE_TAGS_SHARE = 0.65         # Share of questions from favorite tags (rest random)
 
     # Map difficulty_hint (0..10) to latent scale roughly in [-3, 3] (logit space)
     DIFF_SCALE = 1.8
@@ -70,6 +77,14 @@ class CONFIG:
     NOISE_CONF = 0.15                 # was 0.12 — produce a few more extremes
     NOISE_TIME = 0.35                 # was 0.25 — longer time tails
 
+    # Dunning-Kruger and hard-item overconfidence
+    DUNNING_K_COEFF = 0.12            # Coefficient for Dunning-Kruger effect
+    HARD_ITEM_OVERCONF_TAGS = ["bayes", "probability", "statistics", "logic"]  # Tags that cause overconfidence
+    HARD_ITEM_OVERCONF_BONUS = 0.08   # Bonus confidence for hard-item traps
+
+    # Confidence quantization
+    CONF_FAVORITE_PROB = 0.15         # Extra probability to snap to favorite values
+
     # Response time (ms) — increased base and sensitivity
     RT_BASE = 5000                    # was 2400
     RT_PER_DIFF = 800                 # was 420
@@ -90,7 +105,9 @@ class CONFIG:
 
 
 # Discrete confidence buckets expected by the UI
+# With "favorite" values (0.6, 0.8) that appear more often
 CONF_BUCKETS = [0.0, 0.15, 0.2, 0.4, 0.6, 0.8, 1.0]
+CONF_FAVORITES = [0.6, 0.8]  # These values appear more frequently
 
 
 # =========================
@@ -121,8 +138,15 @@ def pick_period(hour: int) -> str:
     return "night"
 
 
-def quantize_conf(c: float) -> float:
-    """Snap confidence to the nearest value in CONF_BUCKETS."""
+def quantize_conf(c: float, rng: np.random.Generator) -> float:
+    """Snap confidence to the nearest value in CONF_BUCKETS, with bias toward favorites."""
+    # Sometimes snap to favorite values even if not closest
+    if rng.random() < CONFIG.CONF_FAVORITE_PROB:
+        favorite = rng.choice(CONF_FAVORITES)
+        if abs(c - favorite) < 0.25:  # Only if reasonably close
+            return favorite
+
+    # Otherwise, snap to nearest bucket
     best = CONF_BUCKETS[0]
     best_d = abs(c - best)
     for b in CONF_BUCKETS[1:]:
@@ -142,6 +166,7 @@ class Persona:
     speed_accuracy: float  # >0 — faster, but slightly worse accuracy
     domain_skill: Dict[str, float]
     domain_conf_bias: Dict[str, float]
+    favorite_tags: List[str]  # Tags this persona prefers (60-70% of questions from these)
 
     latent_ability_runtime: float = 0.0  # evolves during "learning"
     seen_items: List[int] = None
@@ -166,12 +191,16 @@ def build_personas(db, students: List[User], items: List[Item]) -> Dict[int, Per
         chronotype = rng.choice(["lark", "neutral", "owl"], p=[0.35, 0.30, 0.35])
         base_ability = float(rng.normal(0.0, CONFIG.PERSON_ABILITY_STD))
         conf_bias_mean = float(rng.normal(0.0, CONFIG.BIAS_CONF_MEAN_STD))
-        conf_missing_prob = rng.uniform(0.55, 0.85)  # used in standard sessions
+        conf_missing_prob = CONFIG.CONF_MISS_PROB_STANDARD  # For standard mode
         speed_accuracy = float(rng.normal(0.0, 0.5))
 
         # Domain skills and calibration shifts
         domain_skill = {t: float(rng.normal(0.0, CONFIG.DOMAIN_SKILL_STD)) for t in tag_universe}
         domain_conf_bias = {t: float(rng.normal(0.0, CONFIG.BIAS_DOMAIN_STD)) for t in tag_universe}
+
+        # Favorite tags: each persona prefers 2-4 tags (60-70% of questions from these)
+        n_favorites = int(rng.integers(2, min(5, len(tag_universe) + 1)))
+        favorite_tags = list(rng.choice(tag_universe, size=n_favorites, replace=False)) if tag_universe else []
 
         p = Persona(
             user_id=u.id,
@@ -182,16 +211,26 @@ def build_personas(db, students: List[User], items: List[Item]) -> Dict[int, Per
             speed_accuracy=clamp(speed_accuracy, -1.0, 1.0),
             domain_skill=domain_skill,
             domain_conf_bias=domain_conf_bias,
+            favorite_tags=favorite_tags,
         )
         p.reset_runtime()
         personas[u.id] = p
     return personas
 
 
-def sample_session_start(rng: np.random.Generator, chronotype: str) -> datetime:
-    # Pick a random day within the last BASE_DATE_DAYS;
-    # time-of-day is biased by chronotype.
-    base = datetime.utcnow() - timedelta(days=int(rng.integers(1, CONFIG.BASE_DATE_DAYS + 1)))
+def sample_session_start(rng: np.random.Generator, chronotype: str, is_calibration: bool = False) -> datetime:
+    """
+    Pick a session start time.
+    Calibration sessions (self_confidence) go to earlier days, real sessions (standard) to later days.
+    """
+    if is_calibration:
+        # Calibration sessions: first CALIBRATION_DAYS
+        days_ago = int(rng.integers(CONFIG.BASE_DATE_DAYS - CONFIG.CALIBRATION_DAYS + 1, CONFIG.BASE_DATE_DAYS + 1))
+    else:
+        # Real sessions: later days (after calibration period)
+        days_ago = int(rng.integers(1, CONFIG.BASE_DATE_DAYS - CONFIG.CALIBRATION_DAYS + 1))
+
+    base = datetime.utcnow() - timedelta(days=days_ago)
     if chronotype == "lark":
         hour = int(rng.integers(6, 14))
     elif chronotype == "owl":
@@ -206,20 +245,39 @@ def sample_session_start(rng: np.random.Generator, chronotype: str) -> datetime:
 def choose_items_for_session(
         rng: np.random.Generator, items: List[Item], persona: Persona, n: int
 ) -> List[Item]:
-    # Allow repeats from "already seen" with some probability (learning)
-    pool = items.copy()
+    """
+    Choose items for session with bias toward favorite tags.
+    60-70% from favorite tags, rest random for variety.
+    """
+    # Split items by favorite tags
+    favorite_items = [it for it in items if any(tag in tags_of_item(it) for tag in persona.favorite_tags)]
+    other_items = [it for it in items if it not in favorite_items]
+
+    # If no favorite items, use all items
+    if not favorite_items:
+        favorite_items = items
+        other_items = []
+
     chosen: List[Item] = []
     seen_ids = set(persona.seen_items or [])
+
     for _ in range(n):
+        # Check for repetition first
         if seen_ids and rng.random() < CONFIG.REPETITION_PROB:
-            # Repeat
             rep_id = int(rng.choice(list(seen_ids)))
             it = next((x for x in items if x.id == rep_id), None)
             if it:
                 chosen.append(it)
                 continue
-        # Take a new item
-        it = rng.choice(pool)
+
+        # Choose from favorite tags with probability FAVORITE_TAGS_SHARE
+        if rng.random() < CONFIG.FAVORITE_TAGS_SHARE and favorite_items:
+            it = rng.choice(favorite_items)
+        else:
+            # Random from all items (or other items if available)
+            pool = other_items if other_items else items
+            it = rng.choice(pool)
+
         chosen.append(it)
     return chosen
 
@@ -256,9 +314,12 @@ def simulate_one_interaction(
         item: Item,
         q_index: int,
         tstamp: datetime,
+        mode: str = "standard",
 ) -> Tuple[bool, Optional[float], int]:
     """
     Returns (is_correct, confidence, response_time_ms)
+
+    mode: "self_confidence" or "standard" - affects confidence generation
     """
     # Base difficulty
     diff_lat = difficulty_to_latent(item.difficulty_hint)
@@ -283,25 +344,49 @@ def simulate_one_interaction(
             - speed_penalty
             + rng.normal(0.0, CONFIG.NOISE_P)
     )
-    p_correct = clamp(sigmoid(logit), 0.02, 0.98)
+    p_correct = clamp(sigmoid(logit), 0.03, 0.97)  # Realistic bounds
     is_correct = rng.random() < p_correct
 
-    # Confidence: "feeling" of success + personal/domain calibration + noise
-    conf = p_correct + persona.conf_bias_mean + domain_conf_bias(persona, item) + rng.normal(0.0, CONFIG.NOISE_CONF)
-    # Slight global overconfidence
-    conf = conf + 0.03
-    conf = clamp(conf, 0.0, 1.0)
-    # Quantize to UI buckets
-    conf = quantize_conf(conf)
+    # Confidence generation (only for self_confidence mode, or None for standard)
+    conf: Optional[float] = None
+    if mode == "self_confidence":
+        # Base confidence from actual probability
+        conf = p_correct
 
-    # Response time (ms)
+        # Personal and domain calibration bias
+        conf += persona.conf_bias_mean
+        conf += domain_conf_bias(persona, item)
+
+        # Dunning-Kruger effect: low-ability users overestimate on hard items
+        dunning_term = CONFIG.DUNNING_K_COEFF * (-persona.latent_ability_runtime) * sigmoid(diff_lat)
+        conf += dunning_term
+
+        # Hard-item overconfidence: certain tags cause false confidence
+        item_tags = tags_of_item(item)
+        if any(tag.lower() in [t.lower() for t in CONFIG.HARD_ITEM_OVERCONF_TAGS] for tag in item_tags):
+            conf += CONFIG.HARD_ITEM_OVERCONF_BONUS
+
+        # Noise
+        conf += rng.normal(0.0, CONFIG.NOISE_CONF)
+
+        # Slight global overconfidence
+        conf = conf + 0.03
+
+        conf = clamp(conf, 0.0, 1.0)
+        # Quantize to UI buckets with favorite bias
+        conf = quantize_conf(conf, rng)
+
+    # Response time (ms) - calculated even without confidence
+    # Use p_correct as proxy for confidence if confidence is None
+    conf_for_rt = conf if conf is not None else p_correct
+
     rt = CONFIG.RT_BASE + CONFIG.RT_PER_DIFF * (diff_lat + 1.5)  # slight nonlinearity
     # Speed-accuracy: "fast" personas get a bit faster
     rt *= (1.0 - 0.10 * persona.speed_accuracy)
     # Confidence effect on time
-    if conf >= CONFIG.HI_CONF:
+    if conf_for_rt >= CONFIG.HI_CONF:
         rt *= CONFIG.RT_CONF_FAST
-    elif conf <= CONFIG.LO_CONF:
+    elif conf_for_rt <= CONFIG.LO_CONF:
         rt *= CONFIG.RT_CONF_SLOW
     # Fatigue slows down
     rt *= (1.0 + CONFIG.RT_FATIGUE * fatigue)
@@ -362,36 +447,61 @@ def main():
             for s_idx in range(n_sessions):
                 # Session mode
                 mode = "self_confidence" if rng.random() < CONFIG.SELF_CONFIDENCE_SHARE else "standard"
-                db_session = create_session(db, stu.id, mode)
+                # Purpose: calibration for self_confidence, real for standard
+                purpose = "calibration" if mode == "self_confidence" else "real"
+                db_session = create_session(db, stu.id, mode, purpose)
+                # Verify purpose was set correctly
+                if db_session.purpose != purpose:
+                    print(f"[WARN] Session {db_session.id} purpose mismatch: expected {purpose}, got {db_session.purpose}")
                 total_sessions += 1
 
-                # Session start time
-                t = sample_session_start(rng, persona.chronotype)
+                # Session start time (calibration sessions earlier, real later)
+                is_calibration = (mode == "self_confidence")
+                t = sample_session_start(rng, persona.chronotype, is_calibration=is_calibration)
 
-                n_q = int(rng.integers(CONFIG.QUESTIONS_PER_SESSION[0], CONFIG.QUESTIONS_PER_SESSION[1] + 1))
+                # Self-confidence sessions tend to be slightly longer (more calibration data)
+                if mode == "self_confidence":
+                    # Calibration sessions: 10-18 questions (reduced for speed)
+                    n_q = int(rng.integers(10, 19))
+                else:
+                    # Real sessions: 8-15 questions
+                    n_q = int(rng.integers(CONFIG.QUESTIONS_PER_SESSION[0], CONFIG.QUESTIONS_PER_SESSION[1] + 1))
                 picked = choose_items_for_session(rng, items, persona, n_q)
 
                 # For streaks
                 current_streak = 0
 
                 for q_idx, item in enumerate(picked, start=1):
-                    # Advance time within the session
-                    t += timedelta(seconds=float(rng.integers(20, 90)))
+                    # Advance time within the session (20-120 seconds between questions)
+                    t += timedelta(seconds=float(rng.integers(20, 120)))
 
                     is_correct, confidence, response_time_ms = simulate_one_interaction(
-                        rng, persona, item, current_streak, t
+                        rng, persona, item, q_idx, t, mode=mode
                     )
 
-                    # attempts_count
+                    # attempts_count: rare, more likely with low confidence + error + high response time
                     attempts_count = 1
-                    # Lower chance of a second attempt
-                    if (not is_correct) and confidence is not None and confidence < 0.35 and rng.random() < 0.05:
-                        attempts_count = 2
+                    if not is_correct:
+                        # Higher chance if low confidence OR high response time
+                        low_conf = (confidence is not None and confidence < 0.4) or (confidence is None and response_time_ms > 15000)
+                        high_time = response_time_ms > 20000
+                        prob_retry = 0.08 if (low_conf or high_time) else 0.03
+                        if rng.random() < prob_retry:
+                            attempts_count = 2
+                            # Very rarely 3 attempts
+                            if rng.random() < 0.1:
+                                attempts_count = 3
 
-                    # In standard mode, confidence may be missing (now rare)
+                    # Confidence presence based on mode
                     conf_to_store: Optional[float] = confidence
-                    if mode == "standard" and rng.random() < CONFIG.CONF_MISS_PROB_STANDARD:
-                        conf_to_store = None
+                    if mode == "standard":
+                        # Standard mode: almost always None
+                        if rng.random() < CONFIG.CONF_MISS_PROB_STANDARD:
+                            conf_to_store = None
+                    elif mode == "self_confidence":
+                        # Self-confidence mode: rarely missing
+                        if rng.random() < CONFIG.CONF_MISS_PROB_SELF_CONF:
+                            conf_to_store = None
 
                     # Choose option according to correctness
                     options = item.options_en_json
@@ -426,12 +536,13 @@ def main():
                     except Exception:
                         db.rollback()
 
-                    # Update aggregates and Elo (same as /sessions/{id}/answer)
+                    # Update aggregates (same as /sessions/{id}/answer)
                     try:
                         user_agg = get_or_create_user_aggregate(db, stu.id)
                         item_agg = get_or_create_item_aggregate(db, item.id)
 
-                        new_user_ability, new_item_difficulty = update_elo_ratings(
+                        # Update user ability (Elo) - always
+                        new_user_ability, _ = update_elo_ratings(
                             user_agg.elo_ability, item_agg.elo_difficulty, is_correct
                         )
 
@@ -451,6 +562,12 @@ def main():
                         user_updates["elo_ability"] = new_user_ability
                         update_user_aggregate(db, stu.id, **user_updates)
 
+                        # Update item aggregates
+                        # Get BB parameters
+                        bb_alpha = getattr(item_agg, 'bb_alpha', 1.0) if hasattr(item_agg, 'bb_alpha') else 1.0
+                        bb_beta = getattr(item_agg, 'bb_beta', 1.0) if hasattr(item_agg, 'bb_beta') else 1.0
+                        bb_n = getattr(item_agg, 'bb_n', 0) if hasattr(item_agg, 'bb_n') else 0
+
                         item_updates = update_item_aggregates(
                             item.id,
                             is_correct,
@@ -462,9 +579,29 @@ def main():
                                 "avg_conf_gap": item_agg.avg_conf_gap,
                                 "avg_time_ms": item_agg.avg_time_ms,
                                 "elo_difficulty": item_agg.elo_difficulty,
+                                "bb_alpha": bb_alpha,
+                                "bb_beta": bb_beta,
+                                "bb_n": bb_n,
                             },
                         )
-                        item_updates["elo_difficulty"] = new_item_difficulty
+
+                        # Update Beta-Binomial difficulty ONLY for real sessions
+                        if purpose == "real":
+                            new_bb_alpha, new_bb_beta = update_beta_binomial_difficulty(
+                                bb_alpha, bb_beta, is_correct
+                            )
+                            item_updates["bb_alpha"] = new_bb_alpha
+                            item_updates["bb_beta"] = new_bb_beta
+                            item_updates["bb_n"] = bb_n + 1
+                            item_updates["bb_updated_at"] = datetime.utcnow()
+
+                        # Update Elo difficulty only for calibration sessions (legacy)
+                        if purpose == "calibration":
+                            _, new_item_difficulty = update_elo_ratings(
+                                user_agg.elo_ability, item_agg.elo_difficulty, is_correct
+                            )
+                            item_updates["elo_difficulty"] = new_item_difficulty
+
                         update_item_aggregate(db, item.id, **item_updates)
 
                     except Exception as e:

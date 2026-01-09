@@ -1,18 +1,17 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
-import json
 
 Base = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     role = Column(String(20), nullable=False)  # student|instructor|admin
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     sessions = relationship("Session", back_populates="user")
     interactions = relationship("Interaction", back_populates="user")
@@ -20,7 +19,7 @@ class User(Base):
 
 class Item(Base):
     __tablename__ = "items"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     # English content
     stem_en = Column(Text, nullable=False)
@@ -34,27 +33,28 @@ class Item(Base):
     tags_ru = Column(String(200), nullable=True)  # comma-separated Russian tags
     difficulty_hint = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     interactions = relationship("Interaction", back_populates="item")
     aggregates = relationship("AggregateItem", back_populates="item")
 
 class Session(Base):
     __tablename__ = "sessions"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     mode = Column(String(20), nullable=False)  # standard|self_confidence
+    purpose = Column(String(20), nullable=False, default="real")  # calibration|real
     created_at = Column(DateTime, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
-    
+
     # Relationships
     user = relationship("User", back_populates="sessions")
     interactions = relationship("Interaction", back_populates="session")
 
 class Interaction(Base):
     __tablename__ = "interactions"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -64,8 +64,12 @@ class Interaction(Base):
     confidence = Column(Float, nullable=True)  # 0.0-1.0
     response_time_ms = Column(Integer, nullable=False)
     attempts_count = Column(Integer, default=1)
+    # Additional timing and behavior metrics
+    answer_changes_count = Column(Integer, default=0)  # Number of times user changed their answer
+    time_to_first_choice_ms = Column(Integer, nullable=True)  # Time from question start to first option selection
+    time_after_choice_ms = Column(Integer, nullable=True)  # Time from first choice to submission
     timestamp = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     session = relationship("Session", back_populates="interactions")
     user = relationship("User", back_populates="interactions")
@@ -73,21 +77,26 @@ class Interaction(Base):
 
 class AggregateItem(Base):
     __tablename__ = "aggregates_items"
-    
+
     item_id = Column(Integer, ForeignKey("items.id"), primary_key=True)
     avg_accuracy = Column(Float, default=0.0)
     avg_confidence = Column(Float, default=0.0)
     avg_conf_gap = Column(Float, default=0.0)
     avg_time_ms = Column(Float, default=0.0)
-    elo_difficulty = Column(Float, default=1000.0)
+    elo_difficulty = Column(Float, default=1000.0)  # Legacy, kept for backward compatibility
+    # Beta-Binomial difficulty parameters
+    bb_alpha = Column(Float, default=1.0)  # Prior: Laplace (alpha=1, beta=1)
+    bb_beta = Column(Float, default=1.0)
+    bb_n = Column(Integer, default=0)  # Total number of real interactions used for BB
+    bb_updated_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     item = relationship("Item", back_populates="aggregates")
 
 class AggregateUser(Base):
     __tablename__ = "aggregates_users"
-    
+
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     ema_accuracy = Column(Float, default=0.0)
     ema_confidence = Column(Float, default=0.0)
@@ -95,13 +104,13 @@ class AggregateUser(Base):
     avg_time_ms = Column(Float, default=0.0)
     elo_ability = Column(Float, default=1000.0)
     updated_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     user = relationship("User", back_populates="aggregates")
 
 class ModelRegistry(Base):
     __tablename__ = "model_registry"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     version = Column(String(20), nullable=False)
     trained_at = Column(DateTime, default=datetime.utcnow)

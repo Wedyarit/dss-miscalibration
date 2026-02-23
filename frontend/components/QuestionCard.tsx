@@ -24,13 +24,20 @@ interface QuestionCardProps {
     timeToFirstChoiceMs?: number,
     timeAfterChoiceMs?: number
   ) => void;
-  mode: 'standard' | 'self_confidence';
+  requireConfidence?: boolean;
+  skipConfidencePrompt?: boolean;
   isLoading?: boolean;
 }
 
-export function QuestionCard({ question, onAnswer, mode, isLoading = false }: QuestionCardProps) {
+export function QuestionCard({
+  question,
+  onAnswer,
+  requireConfidence = false,
+  skipConfidencePrompt = false,
+  isLoading = false,
+}: QuestionCardProps) {
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [confidence, setConfidence] = useState<number>(60);
+  const [confidence, setConfidence] = useState<number>(0.6);
   const [startTime] = useState(Date.now());
   const [firstChoiceTime, setFirstChoiceTime] = useState<number | null>(null);
   const [answerChangesCount, setAnswerChangesCount] = useState(0);
@@ -51,7 +58,7 @@ export function QuestionCard({ question, onAnswer, mode, isLoading = false }: Qu
   const handleSubmit = () => {
     if (selectedOption === null) return;
 
-    const isConfidenceRequired = mode === 'self_confidence';
+    const isConfidenceRequired = requireConfidence && !skipConfidencePrompt;
 
     if (isConfidenceRequired) {
       setIsAnswerConfirmed(true);
@@ -77,8 +84,8 @@ export function QuestionCard({ question, onAnswer, mode, isLoading = false }: Qu
 
   const handleContinue = () => {
     if (selectedOption === null) return;
-    const isConfidenceRequired = mode === 'self_confidence';
-    const confidenceValue = isConfidenceRequired ? confidence / 100 : undefined;
+    const isConfidenceRequired = requireConfidence && !skipConfidencePrompt;
+    const confidenceValue = isConfidenceRequired ? confidence : undefined;
 
     if (isConfidenceRequired && confidenceValue === undefined) return;
 
@@ -96,7 +103,7 @@ export function QuestionCard({ question, onAnswer, mode, isLoading = false }: Qu
     );
   };
 
-  const isConfidenceRequired = mode === 'self_confidence';
+  const isConfidenceRequired = requireConfidence && !skipConfidencePrompt;
   const canSubmit = selectedOption !== null && !isAnswerConfirmed;
   const canContinue = isConfidenceRequired && isAnswerConfirmed && confidence !== undefined;
 
@@ -188,6 +195,12 @@ export function QuestionCard({ question, onAnswer, mode, isLoading = false }: Qu
               ? t('studentTest.confirmAnswer')
               : t('studentTest.submitAnswer')}
         </Button>
+
+        {!isConfidenceRequired && isAnswerConfirmed && (
+          <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+            {t('studentTest.confidence.skippedForThisQuestion')}
+          </div>
+        )}
 
         {isConfidenceRequired && isAnswerConfirmed && (
           <div ref={confidenceRef}>

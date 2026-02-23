@@ -71,9 +71,6 @@ build/
 .env.test.local
 .env.production.local
 
-# Docker
-.dockerignore
-
 # Data files
 data/
 models/

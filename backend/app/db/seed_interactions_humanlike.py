@@ -3,14 +3,21 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 from app.db.base import create_tables
 from app.db.session import SessionLocal
-from app.db.models import User, Item, Interaction
+from app.db.models import (
+    User,
+    Item,
+    Interaction,
+    Session as DBSession,
+    AggregateUser,
+    AggregateItem,
+)
 from app.db.crud import (
     create_user,
     get_users_by_role,
@@ -41,10 +48,10 @@ Key changes:
 # Configuration
 # =========================
 class CONFIG:
-    NUM_STUDENTS = 25                  # Reduced for faster seeding
+    NUM_STUDENTS = 32                  # Slightly larger pool for better class coverage
     SESSIONS_PER_STUDENT = (6, 10)     # Range of session counts per student (reduced)
     QUESTIONS_PER_SESSION = (8, 15)    # Range of question counts per session (reduced)
-    SELF_CONFIDENCE_SHARE = 0.35       # Share of sessions in self_confidence mode (calibration dataset)
+    SELF_CONFIDENCE_SHARE = 0.50       # More calibration sessions -> more labeled data
     # Reduced to balance speed and data quality
     # With 25 students * 8 avg sessions * 0.35 * 14 avg questions ≈ 980 interactions total
     # ≈ 343 calibration interactions with confidence (sufficient for training)
@@ -78,9 +85,16 @@ class CONFIG:
     NOISE_TIME = 0.35                 # was 0.25 — longer time tails
 
     # Dunning-Kruger and hard-item overconfidence
-    DUNNING_K_COEFF = 0.12            # Coefficient for Dunning-Kruger effect
+    DUNNING_K_COEFF = 0.20            # Stronger Dunning-Kruger effect
     HARD_ITEM_OVERCONF_TAGS = ["bayes", "probability", "statistics", "logic"]  # Tags that cause overconfidence
-    HARD_ITEM_OVERCONF_BONUS = 0.08   # Bonus confidence for hard-item traps
+    HARD_ITEM_OVERCONF_BONUS = 0.18   # Stronger overconfidence on trap topics
+
+    # Targeted confident-wrong shaping (only in self_confidence mode)
+    CONFIDENT_WRONG_INJECTION_BASE = 0.16
+    CONFIDENT_WRONG_INJECTION_HARD_BONUS = 0.14
+    CONFIDENT_WRONG_INJECTION_LOW_ABILITY_BONUS = 0.10
+    CONFIDENT_WRONG_MIN = 0.72
+    CONFIDENT_WRONG_MAX = 0.95
 
     # Confidence quantization
     CONF_FAVORITE_PROB = 0.15         # Extra probability to snap to favorite values
@@ -187,12 +201,38 @@ def build_personas(db, students: List[User], items: List[Item]) -> Dict[int, Per
                     tag_universe.append(t)
 
     personas: Dict[int, Persona] = {}
-    for u in students:
+    special_profiles = [
+        {
+            "name": "Импульсивный новичок",
+            "base_ability": -1.1,
+            "conf_bias_mean": 0.30,
+            "speed_accuracy": 0.75,
+        },
+        {
+            "name": "Осторожный эксперт",
+            "base_ability": 1.35,
+            "conf_bias_mean": -0.20,
+            "speed_accuracy": -0.55,
+        },
+        {
+            "name": "Калиброванный",
+            "base_ability": 0.35,
+            "conf_bias_mean": 0.01,
+            "speed_accuracy": 0.0,
+        },
+    ]
+
+    for idx, u in enumerate(students):
         chronotype = rng.choice(["lark", "neutral", "owl"], p=[0.35, 0.30, 0.35])
         base_ability = float(rng.normal(0.0, CONFIG.PERSON_ABILITY_STD))
         conf_bias_mean = float(rng.normal(0.0, CONFIG.BIAS_CONF_MEAN_STD))
         conf_missing_prob = CONFIG.CONF_MISS_PROB_STANDARD  # For standard mode
         speed_accuracy = float(rng.normal(0.0, 0.5))
+        if idx < len(special_profiles):
+            profile = special_profiles[idx]
+            base_ability = profile["base_ability"]
+            conf_bias_mean = profile["conf_bias_mean"]
+            speed_accuracy = profile["speed_accuracy"]
 
         # Domain skills and calibration shifts
         domain_skill = {t: float(rng.normal(0.0, CONFIG.DOMAIN_SKILL_STD)) for t in tag_universe}
@@ -230,7 +270,7 @@ def sample_session_start(rng: np.random.Generator, chronotype: str, is_calibrati
         # Real sessions: later days (after calibration period)
         days_ago = int(rng.integers(1, CONFIG.BASE_DATE_DAYS - CONFIG.CALIBRATION_DAYS + 1))
 
-    base = datetime.utcnow() - timedelta(days=days_ago)
+    base = datetime.now(tz=timezone.utc) - timedelta(days=days_ago)
     if chronotype == "lark":
         hour = int(rng.integers(6, 14))
     elif chronotype == "owl":
@@ -349,6 +389,9 @@ def simulate_one_interaction(
 
     # Confidence generation (only for self_confidence mode, or None for standard)
     conf: Optional[float] = None
+    item_tags = tags_of_item(item)
+    hard_trap = any(tag.lower() in [t.lower() for t in CONFIG.HARD_ITEM_OVERCONF_TAGS] for tag in item_tags)
+
     if mode == "self_confidence":
         # Base confidence from actual probability
         conf = p_correct
@@ -362,8 +405,7 @@ def simulate_one_interaction(
         conf += dunning_term
 
         # Hard-item overconfidence: certain tags cause false confidence
-        item_tags = tags_of_item(item)
-        if any(tag.lower() in [t.lower() for t in CONFIG.HARD_ITEM_OVERCONF_TAGS] for tag in item_tags):
+        if hard_trap:
             conf += CONFIG.HARD_ITEM_OVERCONF_BONUS
 
         # Noise
@@ -375,6 +417,23 @@ def simulate_one_interaction(
         conf = clamp(conf, 0.0, 1.0)
         # Quantize to UI buckets with favorite bias
         conf = quantize_conf(conf, rng)
+
+        # Force a controlled amount of confident errors for learnable rare class.
+        # This keeps the dataset realistic while preventing class collapse.
+        if not is_correct:
+            wrong_conf_boost_prob = CONFIG.CONFIDENT_WRONG_INJECTION_BASE
+            if diff_lat >= 0.9:
+                wrong_conf_boost_prob += CONFIG.CONFIDENT_WRONG_INJECTION_HARD_BONUS
+            if persona.latent_ability_runtime <= -0.4:
+                wrong_conf_boost_prob += CONFIG.CONFIDENT_WRONG_INJECTION_LOW_ABILITY_BONUS
+            if hard_trap:
+                wrong_conf_boost_prob += 0.08
+            wrong_conf_boost_prob = clamp(wrong_conf_boost_prob, 0.0, 0.75)
+
+            if rng.random() < wrong_conf_boost_prob:
+                boosted = float(rng.uniform(CONFIG.CONFIDENT_WRONG_MIN, CONFIG.CONFIDENT_WRONG_MAX))
+                conf = max(conf, boosted)
+                conf = quantize_conf(clamp(conf, 0.0, 1.0), rng)
 
     # Response time (ms) - calculated even without confidence
     # Use p_correct as proxy for confidence if confidence is None
@@ -413,9 +472,35 @@ def simulate_one_interaction(
 def ensure_students(db, target_n: int) -> List[User]:
     students = get_users_by_role(db, "student")
     need = max(0, target_n - len(students))
-    for _ in range(need):
-        create_user(db, "student")
+    persona_names = [
+        "Импульсивный новичок",
+        "Осторожный эксперт",
+        "Калиброванный",
+        "Steady Improver",
+        "Fast Intuitive Learner",
+        "Methodical Learner",
+    ]
+    for i in range(need):
+        display_name = persona_names[i] if i < len(persona_names) else f"Student Persona {len(students) + i + 1}"
+        create_user(db, "student", display_name=display_name)
     return get_users_by_role(db, "student")
+
+
+def reset_generated_dataset(db) -> None:
+    """
+    Remove generated sessions/interactions/aggregates before reseeding.
+    Keeps users and items intact.
+    """
+    deleted_interactions = db.query(Interaction).delete(synchronize_session=False)
+    deleted_sessions = db.query(DBSession).delete(synchronize_session=False)
+    deleted_user_aggs = db.query(AggregateUser).delete(synchronize_session=False)
+    deleted_item_aggs = db.query(AggregateItem).delete(synchronize_session=False)
+    db.commit()
+    print(
+        "[INFO] Cleared old generated data: "
+        f"interactions={deleted_interactions}, sessions={deleted_sessions}, "
+        f"user_aggs={deleted_user_aggs}, item_aggs={deleted_item_aggs}"
+    )
 
 
 def main():
@@ -427,6 +512,7 @@ def main():
     db = SessionLocal()
 
     try:
+        reset_generated_dataset(db)
         items = get_items(db, limit=1000)
         if len(items) < 20:
             print(f"[WARN] Only {len(items)} items found. Consider seeding bilingual questions first.")
@@ -593,7 +679,7 @@ def main():
                             item_updates["bb_alpha"] = new_bb_alpha
                             item_updates["bb_beta"] = new_bb_beta
                             item_updates["bb_n"] = bb_n + 1
-                            item_updates["bb_updated_at"] = datetime.utcnow()
+                            item_updates["bb_updated_at"] = datetime.now(tz=timezone.utc)
 
                         # Update Elo difficulty only for calibration sessions (legacy)
                         if purpose == "calibration":

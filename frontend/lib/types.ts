@@ -12,6 +12,7 @@ export interface Session {
   id: number;
   user_id: number;
   mode: 'standard' | 'self_confidence';
+  purpose?: 'calibration' | 'real';
   created_at: string;
   finished_at?: string;
 }
@@ -23,12 +24,48 @@ export interface AnswerResponse {
   session_id: number;
 }
 
+export interface AnswerSubmitPayload {
+  item_id: number;
+  chosen_option: number;
+  confidence?: number;
+  initial_chosen_option?: string;
+  initial_confidence?: number;
+  reconsidered?: boolean;
+  time_to_reconsider_ms?: number;
+  response_time_ms: number;
+  answer_changes_count?: number;
+  time_to_first_choice_ms?: number;
+  time_after_choice_ms?: number;
+}
+
 export interface PredictionResponse {
-  risk: number;
-  recommendation: string;
+  intervention: {
+    risk: number;
+    reason_code: string;
+    message_ru: string;
+    show_intervention: boolean;
+    reason_text?: string;
+  };
   model_version?: string;
   features_used?: number;
   error?: string;
+}
+
+export interface SimulatedUser {
+  user_id: number;
+  student_name: string;
+  is_new: boolean;
+}
+
+export interface ConfidencePolicyResponse {
+  should_request_confidence: boolean;
+  confidence_sampling_rate: number;
+  mode: 'standard' | 'self_confidence';
+}
+
+export interface NextQuestionResponse {
+  question: Question;
+  require_confidence: boolean;
 }
 
 export interface AnalyticsOverview {
@@ -39,6 +76,7 @@ export interface AnalyticsOverview {
   confident_error_rate: number;
   total_interactions: number;
   interactions_with_confidence: number;
+  coachability_rate: number;
   model_version?: string;
 }
 
@@ -64,6 +102,32 @@ export interface ProblematicItem {
   total_interactions: number;
   avg_confidence: number;
   avg_accuracy: number;
+  pedagogical_note?: string;
+  recommendation_for_teacher?: string;
+}
+
+export interface HiddenStar {
+  user_id: number;
+  student_name: string;
+  accuracy: number;
+  avg_confidence: number;
+}
+
+export interface InstructorInsight {
+  key: string;
+  label: string;
+  value: string;
+  description: string;
+}
+
+export interface InstructorSummary {
+  overview: AnalyticsOverview;
+  reliability: ReliabilityResponse;
+  class_self_awareness: string;
+  danger_zones: string[];
+  hidden_stars: HiddenStar[];
+  insights: InstructorInsight[];
+  problematic_items: ProblematicItem[];
 }
 
 export interface TrainRequest {

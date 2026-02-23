@@ -6,8 +6,8 @@ import json
 from datetime import datetime
 
 # User CRUD
-def create_user(db: Session, role: str) -> User:
-    db_user = User(role=role)
+def create_user(db: Session, role: str, display_name: Optional[str] = None) -> User:
+    db_user = User(role=role, display_name=display_name)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
@@ -15,6 +15,20 @@ def create_user(db: Session, role: str) -> User:
 
 def get_user(db: Session, user_id: int) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
+
+def get_or_create_student_by_name(db: Session, display_name: str) -> User:
+    normalized = (display_name or "").strip()
+    if not normalized:
+        normalized = "Student"
+    user = (
+        db.query(User)
+        .filter(User.role == "student")
+        .filter(func.lower(User.display_name) == normalized.lower())
+        .first()
+    )
+    if user:
+        return user
+    return create_user(db, role="student", display_name=normalized)
 
 def get_users_by_role(db: Session, role: str) -> List[User]:
     return db.query(User).filter(User.role == role).all()
@@ -94,6 +108,10 @@ def finish_session(db: Session, session_id: int):
 def create_interaction(db: Session, session_id: int, user_id: int, item_id: int, 
                       chosen_option: int, is_correct: bool, confidence: Optional[float], 
                       response_time_ms: int, attempts_count: int = 1,
+                      initial_chosen_option: Optional[str] = None,
+                      initial_confidence: Optional[float] = None,
+                      reconsidered: bool = False,
+                      time_to_reconsider_ms: Optional[int] = None,
                       answer_changes_count: Optional[int] = None,
                       time_to_first_choice_ms: Optional[int] = None,
                       time_after_choice_ms: Optional[int] = None) -> Interaction:
@@ -102,8 +120,12 @@ def create_interaction(db: Session, session_id: int, user_id: int, item_id: int,
         user_id=user_id,
         item_id=item_id,
         chosen_option=chosen_option,
+        initial_chosen_option=initial_chosen_option,
         is_correct=is_correct,
         confidence=confidence,
+        initial_confidence=initial_confidence,
+        reconsidered=reconsidered,
+        time_to_reconsider_ms=time_to_reconsider_ms,
         response_time_ms=response_time_ms,
         attempts_count=attempts_count,
         answer_changes_count=answer_changes_count or 0,
@@ -128,8 +150,10 @@ def get_interactions_for_training(db: Session, limit: int = 10000, purpose: str 
     """
     query = db.query(Interaction).join(DBSession).filter(DBSession.purpose == purpose)
     if purpose == "calibration":
-        # For calibration, we need confidence
-        query = query.filter(Interaction.confidence.isnot(None))
+        # For calibration, we need confidence from initial or final answer.
+        query = query.filter(
+            (Interaction.initial_confidence.isnot(None)) | (Interaction.confidence.isnot(None))
+        )
     return query.limit(limit).all()
 
 # Aggregate CRUD
@@ -180,9 +204,14 @@ def update_item_aggregate(db: Session, item_id: int, **kwargs):
 # Model Registry CRUD
 def create_model_registry(db: Session, version: str, params_json: str, calib_type: str, 
                          ece: Optional[float] = None, brier: Optional[float] = None, 
-                         roc_auc: Optional[float] = None, notes: Optional[str] = None) -> ModelRegistry:
+                         roc_auc: Optional[float] = None, notes: Optional[str] = None,
+                         friendly_name: Optional[str] = None, is_active: bool = True) -> ModelRegistry:
+    if is_active:
+        db.query(ModelRegistry).update({"is_active": False})
     db_model = ModelRegistry(
         version=version,
+        friendly_name=friendly_name,
+        is_active=is_active,
         params_json=params_json,
         calib_type=calib_type,
         ece=ece,
@@ -196,6 +225,14 @@ def create_model_registry(db: Session, version: str, params_json: str, calib_typ
     return db_model
 
 def get_latest_model(db: Session) -> Optional[ModelRegistry]:
+    active = (
+        db.query(ModelRegistry)
+        .filter(ModelRegistry.is_active == True)  # noqa: E712
+        .order_by(desc(ModelRegistry.trained_at))
+        .first()
+    )
+    if active:
+        return active
     return db.query(ModelRegistry).order_by(desc(ModelRegistry.trained_at)).first()
 
 def get_model_by_version(db: Session, version: str) -> Optional[ModelRegistry]:

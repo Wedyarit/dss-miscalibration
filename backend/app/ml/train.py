@@ -70,6 +70,22 @@ def _streak_from_recent(recent: List[int]) -> int:
             break
     return min(s, 5)
 
+
+def _effective_confidence(inter) -> Optional[float]:
+    return inter.initial_confidence if inter.initial_confidence is not None else inter.confidence
+
+
+def _effective_is_correct(inter) -> bool:
+    if inter.initial_chosen_option is None:
+        return bool(inter.is_correct)
+    try:
+        initial_option = int(inter.initial_chosen_option)
+    except (TypeError, ValueError):
+        return bool(inter.is_correct)
+    if inter.item is None:
+        return bool(inter.is_correct)
+    return initial_option == inter.item.correct_option
+
 def _build_training_rows(interactions, conf_thr: float) -> Tuple[np.ndarray, np.ndarray]:
     """
     Строим фичи 'как будто в онлайне':
@@ -85,8 +101,10 @@ def _build_training_rows(interactions, conf_thr: float) -> Tuple[np.ndarray, np.
     y_rows: List[int] = []
 
     for inter in interactions:
-        if inter.confidence is None:
+        eff_confidence = _effective_confidence(inter)
+        if eff_confidence is None:
             continue
+        eff_is_correct = _effective_is_correct(inter)
 
         uid = inter.user_id
         iid = inter.item_id
@@ -136,13 +154,13 @@ def _build_training_rows(interactions, conf_thr: float) -> Tuple[np.ndarray, np.
         X_rows.append(create_feature_vector(uf, itf, intf, tf))
 
         # целевая метка: confident error
-        y_rows.append(int((not inter.is_correct) and (inter.confidence >= conf_thr)))
+        y_rows.append(int((not eff_is_correct) and (eff_confidence >= conf_thr)))
 
         # теперь ОБНОВЛЯЕМ состояние "после" ответа — уже не влияет на текущие фичи
-        _update_user_roll(u, inter.is_correct, inter.confidence, inter.response_time_ms)
-        _update_user_roll(it, inter.is_correct, inter.confidence, inter.response_time_ms)
+        _update_user_roll(u, eff_is_correct, eff_confidence, inter.response_time_ms)
+        _update_user_roll(it, eff_is_correct, eff_confidence, inter.response_time_ms)
         # Update Beta-Binomial for item (simulating real test updates)
-        if inter.is_correct:
+        if eff_is_correct:
             it.bb_alpha += 1.0
         else:
             it.bb_beta += 1.0
@@ -268,7 +286,9 @@ def train_model(
             ece=metrics["ece"],
             brier=metrics["brier"],
             roc_auc=metrics["roc_auc"],
-            notes=f"PR AUC={metrics['pr_auc']:.3f}; CER(pred risk)={metrics['cer_pred_risk']:.3f}"
+            notes=f"PR AUC={metrics['pr_auc']:.3f}; CER(pred risk)={metrics['cer_pred_risk']:.3f}",
+            friendly_name=f"Iteration 2 model ({calibration}, {metrics['roc_auc']:.2f} ROC-AUC)",
+            is_active=True
         )
 
         return {

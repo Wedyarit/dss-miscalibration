@@ -1,87 +1,97 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useTranslation } from '@/lib/useTranslation';
 import { ClientOnly } from './ClientOnly';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 
 interface RiskBadgeProps {
   risk: number;
-  recommendation: string;
-  modelVersion?: string;
+  showIntervention: boolean;
+  messageRu: string;
+  reasonCode?: string;
+  reasonText?: string;
   onReturnToQuestion?: () => void;
   onContinue?: () => void;
   showReturnButton?: boolean;
 }
 
 export function RiskBadge({
-  risk,
-  recommendation: _recommendation,
-  modelVersion,
+  risk: _risk,
+  showIntervention,
+  messageRu: _messageRu,
+  reasonCode,
+  reasonText,
   onReturnToQuestion,
   onContinue,
   showReturnButton = false,
 }: RiskBadgeProps) {
-  const isHighRisk = risk >= 0.5;
+  const [cooldown, setCooldown] = useState(showIntervention ? 3 : 0);
   const { t } = useTranslation();
+  const reasonLabel = reasonCode ? t(`studentTest.risk.reasons.${reasonCode}`) : null;
+  const canContinue = !showIntervention || cooldown <= 0;
+
+  useEffect(() => {
+    if (!showIntervention) {
+      setCooldown(0);
+      return;
+    }
+    setCooldown(3);
+  }, [showIntervention]);
+
+  useEffect(() => {
+    if (!showIntervention || cooldown <= 0) {
+      return;
+    }
+    const timer = window.setTimeout(() => setCooldown((prev) => prev - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldown, showIntervention]);
 
   return (
-    <Card
-      className={`w-full max-w-lg mx-auto ${isHighRisk ? 'border-destructive bg-red-50' : 'border-green-500 bg-green-50'}`}
-    >
+    <Card className="w-full max-w-lg mx-auto border-border bg-card shadow-sm">
       <CardContent className="p-6">
-        {/* Header with icon and risk level */}
         <div className="flex items-center space-x-3 mb-4">
-          <div className={`p-2 rounded-full ${isHighRisk ? 'bg-red-100' : 'bg-green-100'}`}>
-            {isHighRisk ? (
-              <span className="text-red-600 text-xl">⚠️</span>
-            ) : (
-              <span className="text-green-600 text-xl">✅</span>
-            )}
+          <div className="rounded-full bg-muted p-2">
+            <span className="text-lg text-muted-foreground">💡</span>
           </div>
           <div className="flex-1">
-            <div className="flex items-center space-x-2">
-              <Badge
-                variant={isHighRisk ? 'destructive' : 'secondary'}
-                className="text-sm font-semibold"
-              >
-                {t('studentTest.risk.risk')}
-              </Badge>
-            </div>
+            <p className="text-sm font-semibold">
+              {showIntervention
+                ? t('studentTest.risk.secondOpinion')
+                : t('studentTest.risk.analyticPause')}
+            </p>
           </div>
         </div>
 
-        {/* Message */}
         <div className="mb-4">
-          <p className={`text-base font-medium ${isHighRisk ? 'text-red-800' : 'text-green-800'}`}>
+          <p className="text-base font-medium text-foreground">
             <ClientOnly
               fallback={
-                isHighRisk
-                  ? 'High probability of confident error - please review your answer'
-                  : 'Low risk - you can proceed with confidence'
+                showIntervention
+                  ? t('studentTest.risk.highRisk')
+                  : t('studentTest.risk.lowRisk')
               }
             >
-              {isHighRisk ? t('studentTest.risk.highRisk') : t('studentTest.risk.lowRisk')}
+              {showIntervention ? t('studentTest.risk.highRisk') : t('studentTest.risk.lowRisk')}
             </ClientOnly>
           </p>
 
-          {modelVersion && (
-            <p className="text-xs text-muted-foreground mt-2">
-              {t('studentTest.risk.model')}: {modelVersion}
+          {(reasonLabel || reasonText) && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {reasonLabel || reasonText}
             </p>
           )}
         </div>
 
-        {/* Action buttons */}
-        {showReturnButton && isHighRisk && onReturnToQuestion && (
-          <div className="pt-4 border-t border-gray-200">
+        {showReturnButton && onReturnToQuestion && (
+          <div className="pt-4 border-t border-border">
             <div className="flex space-x-3">
               <Button
                 onClick={onReturnToQuestion}
                 variant="outline"
                 size="sm"
-                className="flex-1 border-red-300 text-red-700 hover:bg-red-50"
+                className="flex-1"
               >
                 {t('studentTest.risk.returnToQuestion')}
               </Button>
@@ -90,9 +100,12 @@ export function RiskBadge({
                   onClick={onContinue}
                   variant="default"
                   size="sm"
-                  className="flex-1 bg-red-600 hover:bg-red-700"
+                  disabled={!canContinue}
+                  className="flex-1"
                 >
-                  {t('studentTest.risk.continue')}
+                  {canContinue
+                    ? t('studentTest.risk.continue')
+                    : t('studentTest.risk.waitCooldown').replace('{seconds}', String(cooldown))}
                 </Button>
               )}
             </div>

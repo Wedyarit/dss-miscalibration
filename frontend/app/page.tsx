@@ -26,7 +26,7 @@ export default function HomePage() {
                 {t('home.studentTestDescription')}
               </p>
               <Button asChild className="w-full">
-                <Link href="/student/test">{t('home.startTestButton')}</Link>
+                <Link href="/student/login">{t('home.startTestButton')}</Link>
               </Button>
             </CardContent>
           </Card>

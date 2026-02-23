@@ -1,12 +1,17 @@
 import axios from 'axios';
 import {
   AnalyticsOverview,
+  AnswerSubmitPayload,
   AnswerResponse,
+  ConfidencePolicyResponse,
+  InstructorSummary,
+  NextQuestionResponse,
   PredictionResponse,
   ProblematicItem,
   Question,
   ReliabilityResponse,
   Session,
+  SimulatedUser,
   TrainRequest,
   TrainResponse,
 } from './types';
@@ -51,10 +56,14 @@ export const questionsApi = {
 
 // Sessions API
 export const sessionsApi = {
-  create: async (userId: number, mode: 'standard' | 'self_confidence'): Promise<Session> => {
+  resolveSimulatedUser: async (studentName: string): Promise<SimulatedUser> => {
+    const response = await api.post('/sessions/simulate-user', { student_name: studentName });
+    return response.data;
+  },
+
+  create: async (userId: number): Promise<Session> => {
     const response = await api.post('/sessions/', {
       user_id: userId,
-      mode,
     });
     return response.data;
   },
@@ -64,28 +73,31 @@ export const sessionsApi = {
     return response.data;
   },
 
+  getConfidencePolicy: async (
+    sessionId: number,
+    itemId: number
+  ): Promise<ConfidencePolicyResponse> => {
+    const response = await api.post(`/sessions/${sessionId}/confidence-policy`, {
+      item_id: itemId,
+    });
+    return response.data;
+  },
+
+  getNextQuestion: async (sessionId: number, language = 'en'): Promise<NextQuestionResponse> => {
+    const response = await api.get('/questions/next', {
+      params: { session_id: sessionId, language },
+    });
+    return response.data;
+  },
+
   submitAnswer: async (
     sessionId: number,
-    itemId: number,
-    chosenOption: number,
-    confidence?: number,
-    responseTimeMs?: number,
-    language = 'en',
-    answerChangesCount?: number,
-    timeToFirstChoiceMs?: number,
-    timeAfterChoiceMs?: number
+    payload: AnswerSubmitPayload,
+    language = 'en'
   ): Promise<AnswerResponse> => {
     const response = await api.post(
       `/sessions/${sessionId}/answer`,
-      {
-        item_id: itemId,
-        chosen_option: chosenOption,
-        confidence,
-        response_time_ms: responseTimeMs || 0,
-        answer_changes_count: answerChangesCount,
-        time_to_first_choice_ms: timeToFirstChoiceMs,
-        time_after_choice_ms: timeAfterChoiceMs,
-      },
+      payload,
       {
         params: { language },
       }
@@ -122,6 +134,23 @@ export const predictionApi = {
 
 // Analytics API
 export const analyticsApi = {
+  getInstructorSummary: async (
+    nBins = 10,
+    threshold = 0.7,
+    minInteractions = 5,
+    language = 'en'
+  ): Promise<InstructorSummary> => {
+    const response = await api.get('/analytics/instructor/summary', {
+      params: {
+        n_bins: nBins,
+        threshold,
+        min_interactions: minInteractions,
+        language,
+      },
+    });
+    return response.data;
+  },
+
   getOverview: async (): Promise<AnalyticsOverview> => {
     const response = await api.get('/analytics/overview');
     return response.data;

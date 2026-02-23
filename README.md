@@ -134,42 +134,39 @@ The system generates synthetic data directly in the database:
 ## Quick Start
 
 ### Prerequisites
-- Docker & Docker Compose
-- Make (optional, for convenience commands)
+- Node.js 18+
+- Python 3.10+
+- Make (optional)
 
 ### Setup
 ```bash
-# Clone and setup
 git clone <repository>
 cd dss-miscalibration
 
-# Start services
-make dev
+cp env.example .env
 
-# Seed database with demo data
+npm install
+npm install --prefix frontend
+cd backend && pip install -r requirements.txt && cd ..
+```
+
+### Run development
+```bash
+npm run dev
+```
+This starts the backend (http://localhost:8000) and frontend (http://localhost:3000) together.
+
+In separate terminals you can run:
+```bash
 make seed
-
-# Train initial model
 make train
-
-# Open frontend
 make open
 ```
 
-### Manual Setup
+Or install everything and run dev via Make:
 ```bash
-# Start services
-docker-compose up -d
-
-# Seed database
-curl -X POST http://localhost:8000/api/v1/ingest/seed \
-  -H "X-API-Key: dev-key"
-
-# Train model
-curl -X POST http://localhost:8000/api/v1/train \
-  -H "X-API-Key: dev-key" \
-  -H "Content-Type: application/json" \
-  -d '{"confidence_threshold": 0.7, "calibration": "platt", "bins": 10}'
+make install   # install root + frontend deps + backend pip deps
+make dev       # runs npm run dev (frontend + backend)
 ```
 
 ## Configuration

@@ -1,10 +1,10 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from datetime import datetime
 
 class TrainRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
-    
+
     confidence_threshold: float = Field(0.7, ge=0.0, le=1.0, description="Confidence threshold for confident errors")
     calibration: str = Field("platt", description="Calibration method: platt, isotonic, or none")
     bins: int = Field(10, ge=5, le=20, description="Number of bins for calibration metrics")
@@ -12,7 +12,7 @@ class TrainRequest(BaseModel):
 
 class TrainResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
-    
+
     success: bool
     model_version: Optional[str] = None
     metrics: Optional[Dict[str, float]] = None
@@ -23,7 +23,7 @@ class TrainResponse(BaseModel):
 
 class AnalyticsOverview(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
-    
+
     ece: float = Field(..., description="Expected Calibration Error")
     mce: float = Field(..., description="Maximum Calibration Error")
     brier: float = Field(..., description="Brier Score")
@@ -31,11 +31,12 @@ class AnalyticsOverview(BaseModel):
     confident_error_rate: float = Field(..., description="Confident Error Rate")
     total_interactions: int = Field(..., description="Total interactions")
     interactions_with_confidence: int = Field(..., description="Interactions with confidence scores")
+    coachability_rate: float = Field(..., description="Share of corrected mistakes after intervention")
     model_version: Optional[str] = Field(None, description="Latest model version")
 
 class ReliabilityBin(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
-    
+
     bin_low: float = Field(..., description="Lower bound of confidence bin")
     bin_high: float = Field(..., description="Upper bound of confidence bin")
     conf_avg: float = Field(..., description="Average confidence in bin")
@@ -44,14 +45,14 @@ class ReliabilityBin(BaseModel):
 
 class ReliabilityResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
-    
+
     bins: List[ReliabilityBin]
     n_bins: int
     model_version: Optional[str] = None
 
 class ProblematicItem(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
-    
+
     item_id: int
     stem: str
     tags: List[str]
@@ -59,17 +60,43 @@ class ProblematicItem(BaseModel):
     total_interactions: int
     avg_confidence: float
     avg_accuracy: float
+    pedagogical_note: Optional[str] = None
+    recommendation_for_teacher: Optional[str] = None
 
 class ProblematicItemsResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
-    
+
     items: List[ProblematicItem]
     total_items: int
     threshold: float = 0.7
 
+
+class InstructorInsight(BaseModel):
+    key: str
+    label: str
+    value: str
+    description: str
+
+
+class HiddenStar(BaseModel):
+    user_id: int
+    student_name: str
+    accuracy: float
+    avg_confidence: float
+
+
+class InstructorSummaryResponse(BaseModel):
+    overview: AnalyticsOverview
+    reliability: ReliabilityResponse
+    class_self_awareness: str
+    danger_zones: List[str]
+    hidden_stars: List[HiddenStar]
+    insights: List[InstructorInsight]
+    problematic_items: List[ProblematicItem]
+
 class ExportRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
-    
+
     start_date: Optional[datetime] = Field(None, description="Start date for export")
     end_date: Optional[datetime] = Field(None, description="End date for export")
     user_id: Optional[int] = Field(None, description="Filter by user ID")

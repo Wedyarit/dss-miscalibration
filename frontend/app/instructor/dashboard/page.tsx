@@ -1,38 +1,31 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { DataTable } from '@/components/DataTable';
 import { MetricCard } from '@/components/MetricCard';
 import { ReliabilityChart } from '@/components/ReliabilityChart';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { analyticsApi } from '@/lib/api';
-import { AnalyticsOverview, ProblematicItem, ReliabilityResponse } from '@/lib/types';
+import { InstructorSummary, ProblematicItem } from '@/lib/types';
 import { useTranslation } from '@/lib/useTranslation';
 
 export default function InstructorDashboardPage() {
-  const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
-  const [reliabilityData, setReliabilityData] = useState<ReliabilityResponse | null>(null);
+  const [summary, setSummary] = useState<InstructorSummary | null>(null);
   const [problematicItems, setProblematicItems] = useState<ProblematicItem[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { t, tObject, language } = useTranslation();
+  const { t, language } = useTranslation();
 
   const loadDashboardData = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      const [overviewData, reliabilityData, problematicData] = await Promise.all([
-        analyticsApi.getOverview(),
-        analyticsApi.getReliability(),
-        analyticsApi.getProblematicItems(0.7, 5, language),
-      ]);
-
-      setOverview(overviewData);
-      setReliabilityData(reliabilityData);
-      setProblematicItems(problematicData.items);
+      const summaryData = await analyticsApi.getInstructorSummary(10, 0.7, 5, language);
+      setSummary(summaryData);
+      setProblematicItems(summaryData.problematic_items);
     } catch (err: unknown) {
       console.error('Dashboard error:', err);
       if (err && typeof err === 'object' && 'response' in err) {
@@ -67,6 +60,16 @@ export default function InstructorDashboardPage() {
   const refreshData = () => {
     loadDashboardData();
   };
+
+  const calibrationHealthLabel = (() => {
+    if (!summary) return 'N/A';
+    if (language === 'ru') {
+      if (summary.class_self_awareness === 'High') return 'Высокое';
+      if (summary.class_self_awareness === 'Medium') return 'Среднее';
+      if (summary.class_self_awareness === 'Low') return 'Низкое';
+    }
+    return summary.class_self_awareness;
+  })();
 
   if (isLoading) {
     return (
@@ -109,30 +112,33 @@ export default function InstructorDashboardPage() {
           </Button>
         </div>
 
-        {/* Model Info */}
-        {overview?.model_version && (
+        {summary && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <span>{t('instructor.modelInfo.title')}</span>
-                <Badge variant="outline">v{overview.model_version}</Badge>
+                {summary.overview.model_version && (
+                  <Badge variant="outline">v{summary.overview.model_version}</Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
                   <span className="font-medium">{t('instructor.modelInfo.totalInteractions')}</span>
-                  <p className="text-muted-foreground">{overview.total_interactions}</p>
+                  <p className="text-muted-foreground">{summary.overview.total_interactions}</p>
                 </div>
                 <div>
                   <span className="font-medium">{t('instructor.modelInfo.withConfidence')}</span>
-                  <p className="text-muted-foreground">{overview.interactions_with_confidence}</p>
+                  <p className="text-muted-foreground">
+                    {summary.overview.interactions_with_confidence}
+                  </p>
                 </div>
                 <div>
                   <span className="font-medium">{t('instructor.modelInfo.confidenceRate')}</span>
                   <p className="text-muted-foreground">
-                    {overview.total_interactions > 0
-                      ? `${((overview.interactions_with_confidence / overview.total_interactions) * 100).toFixed(1)}%`
+                    {summary.overview.total_interactions > 0
+                      ? `${((summary.overview.interactions_with_confidence / summary.overview.total_interactions) * 100).toFixed(1)}%`
                       : '0%'}
                   </p>
                 </div>
@@ -145,89 +151,149 @@ export default function InstructorDashboardPage() {
           </Card>
         )}
 
-        {/* Metrics Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <MetricCard
-            title={t('instructor.metrics.ece')}
-            value={overview ? overview.ece.toFixed(3) : 'N/A'}
-            description={t('instructor.metrics.lowerIsBetter')}
+            title={t('instructor.insights.classSelfAwareness')}
+            value={calibrationHealthLabel}
+            description={t('instructor.insights.classSelfAwarenessHint')}
             variant={
-              overview && overview.ece < 0.1
+              summary?.class_self_awareness === 'High'
                 ? 'success'
-                : overview && overview.ece > 0.2
+                : summary?.class_self_awareness === 'Low'
                   ? 'danger'
                   : 'warning'
             }
           />
           <MetricCard
-            title={t('instructor.metrics.brier')}
-            value={overview ? overview.brier.toFixed(3) : 'N/A'}
-            description={t('instructor.metrics.lowerIsBetter')}
+            title={t('instructor.insights.dangerZones')}
+            value={summary?.danger_zones.slice(0, 2).join(', ') || 'N/A'}
+            description={t('instructor.insights.dangerZonesHint')}
+            variant="warning"
+          />
+          <MetricCard
+            title={t('instructor.insights.coachability')}
+            value={summary ? `${(summary.overview.coachability_rate * 100).toFixed(0)}%` : '0%'}
+            description={t('instructor.insights.coachabilityHint')}
             variant={
-              overview && overview.brier < 0.2
+              (summary?.overview.coachability_rate ?? 0) >= 0.6
                 ? 'success'
-                : overview && overview.brier > 0.4
-                  ? 'danger'
-                  : 'warning'
+                : (summary?.overview.coachability_rate ?? 0) <= 0.3
+                  ? 'warning'
+                  : 'default'
             }
           />
           <MetricCard
-            title={t('instructor.metrics.rocAuc')}
-            value={overview ? overview.roc_auc.toFixed(3) : 'N/A'}
-            description={t('instructor.metrics.higherIsBetter')}
-            variant={
-              overview && overview.roc_auc > 0.8
-                ? 'success'
-                : overview && overview.roc_auc < 0.6
-                  ? 'danger'
-                  : 'warning'
-            }
-          />
-          <MetricCard
-            title={t('instructor.metrics.confidentErrorRate')}
-            value={overview ? `${(overview.confident_error_rate * 100).toFixed(1)}%` : 'N/A'}
-            description="Rate of confident errors"
-            variant={
-              overview && overview.confident_error_rate < 0.2
-                ? 'success'
-                : overview && overview.confident_error_rate > 0.4
-                  ? 'danger'
-                  : 'warning'
-            }
+            title={t('instructor.insights.hiddenStars')}
+            value={summary ? String(summary.hidden_stars.length) : 'N/A'}
+            description={t('instructor.insights.hiddenStarsHint')}
+            variant="success"
           />
         </div>
 
-        {/* Reliability Chart */}
-        {reliabilityData && reliabilityData.bins.length > 0 && (
-          <ReliabilityChart
-            data={reliabilityData.bins}
-            modelVersion={reliabilityData.model_version}
-          />
-        )}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>{t('instructor.advanced.title')}</CardTitle>
+            <Button variant="outline" onClick={() => setShowAdvanced((prev) => !prev)}>
+              {showAdvanced ? t('instructor.advanced.hide') : t('instructor.advanced.show')}
+            </Button>
+          </CardHeader>
+          {showAdvanced && summary && (
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <MetricCard
+                  title={t('instructor.metrics.ece')}
+                  value={summary.overview.ece.toFixed(3)}
+                  description={t('instructor.metrics.lowerIsBetter')}
+                  variant="warning"
+                />
+                <MetricCard
+                  title={t('instructor.metrics.brier')}
+                  value={summary.overview.brier.toFixed(3)}
+                  description={t('instructor.metrics.lowerIsBetter')}
+                  variant="warning"
+                />
+                <MetricCard
+                  title={t('instructor.metrics.rocAuc')}
+                  value={summary.overview.roc_auc.toFixed(3)}
+                  description={t('instructor.metrics.higherIsBetter')}
+                  variant="success"
+                />
+              </div>
+              {summary.reliability.bins.length > 0 && (
+                <ReliabilityChart
+                  data={summary.reliability.bins}
+                  modelVersion={summary.reliability.model_version}
+                />
+              )}
+            </CardContent>
+          )}
+        </Card>
 
-        {/* Problematic Questions */}
+        {summary?.hidden_stars?.length ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('instructor.insights.hiddenStars')}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {summary.hidden_stars.map((student) => (
+                <div
+                  key={student.user_id}
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-md border p-3"
+                >
+                  <span className="font-medium">{student.student_name}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {language === 'ru' ? 'Точность' : 'Accuracy'}: {(student.accuracy * 100).toFixed(0)}% |{' '}
+                    {language === 'ru' ? 'Уверенность' : 'Confidence'}:{' '}
+                    {(student.avg_confidence * 100).toFixed(0)}%
+                  </span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {/* Problematic Questions with pedagogical hints */}
         {problematicItems.length > 0 && (
-          <DataTable
-            data={problematicItems}
-            title={t('instructor.problematicItems')}
-            headers={tObject<{
-              question: string;
-              tags: string;
-              confidentErrorRate: string;
-              interactions: string;
-              avgConfidence: string;
-              avgAccuracy: string;
-            }>('instructor.tableHeaders')}
-          />
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('instructor.problematicItems')}</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-2 pr-4">{t('instructor.tableHeaders.question')}</th>
+                    <th className="py-2 pr-4">{t('instructor.tableHeaders.tags')}</th>
+                    <th className="py-2 pr-4">{t('instructor.tableHeaders.confidentErrorRate')}</th>
+                    <th className="py-2 pr-4">{t('instructor.tableHeaders.interactions')}</th>
+                    <th className="py-2">{t('instructor.tableHeaders.whyProblematic')}</th>
+                    <th className="py-2">{t('instructor.tableHeaders.recommendationForTeacher')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {problematicItems.slice(0, 10).map((item) => (
+                    <tr key={item.item_id} className="border-b align-top">
+                      <td className="py-3 pr-4">{item.stem}</td>
+                      <td className="py-3 pr-4">{item.tags.join(', ')}</td>
+                      <td className="py-3 pr-4">{(item.confident_error_rate * 100).toFixed(0)}%</td>
+                      <td className="py-3 pr-4">{item.total_interactions}</td>
+                      <td className="py-3 pr-4">{item.pedagogical_note || '-'}</td>
+                      <td className="py-3">{item.recommendation_for_teacher || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
         )}
 
         {/* No Data State */}
-        {(!overview || overview.total_interactions === 0) && (
+        {(!summary || summary.overview.total_interactions === 0) && (
           <Card>
             <CardContent className="p-8 text-center">
               <p className="text-muted-foreground mb-4">{t('instructor.noData.message')}</p>
               <Button asChild>
-                <a href="/student/test">{t('instructor.noData.startTest')}</a>
+                <a href="/student/login">{t('instructor.noData.startTest')}</a>
               </Button>
             </CardContent>
           </Card>
